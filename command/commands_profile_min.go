@@ -12,15 +12,27 @@ import (
 )
 
 var minimalUnsupportedCommandPrefixes = []string{
+	"acl auth-method",
+	"acl binding-rule",
 	"license",
+	"login",
 	"namespace",
 	"node pool",
 	"operator utilization",
+	"plugin",
 	"quota",
 	"recommendation",
 	"sentinel",
 	"setup consul",
 	"setup vault",
+	"volume create",
+	"volume delete",
+	"volume deregister",
+	"volume detach",
+	"volume init",
+	"volume register",
+	"volume snapshot",
+	"volume status",
 }
 
 func filterCommandsForBuild(commands map[string]cli.CommandFactory) {
