@@ -410,8 +410,7 @@ func (s *HTTPServer) registerHandlers(enableDebug bool) {
 	s.mux.HandleFunc("/v1/nodes", s.wrap(s.NodesRequest))
 	s.mux.HandleFunc("/v1/node/", s.wrap(s.NodeSpecificRequest))
 
-	s.mux.HandleFunc("/v1/node/pools", s.wrap(s.NodePoolsRequest))
-	s.mux.HandleFunc("/v1/node/pool/", s.wrap(s.NodePoolSpecificRequest))
+	registerNodePoolEndpoints(s)
 
 	s.mux.HandleFunc("/v1/allocations", s.wrap(s.AllocsRequest))
 	s.mux.HandleFunc("/v1/allocation/", s.wrap(s.AllocSpecificRequest))
@@ -424,11 +423,7 @@ func (s *HTTPServer) registerHandlers(enableDebug bool) {
 	s.mux.HandleFunc("/v1/deployment/", s.wrap(s.DeploymentSpecificRequest))
 
 	s.mux.HandleFunc("GET /v1/volumes", s.wrap(s.ListVolumesRequest))
-	s.mux.HandleFunc("/v1/volumes", s.wrap(s.CSIVolumesRequest))
-	s.mux.HandleFunc("/v1/volumes/external", s.wrap(s.CSIExternalVolumesRequest))
-	s.mux.HandleFunc("/v1/volumes/snapshot", s.wrap(s.CSISnapshotsRequest))
-	s.mux.HandleFunc("/v1/volume/csi/", s.wrap(s.CSIVolumeSpecificRequest))
-	s.mux.HandleFunc("/v1/plugins", s.wrap(s.CSIPluginsRequest))
+	registerCSIEndpoints(s)
 	s.mux.HandleFunc("/v1/plugin/csi/", s.wrap(s.CSIPluginSpecificRequest))
 	s.mux.HandleFunc("/v1/volume/host/", s.wrap(s.HostVolumeSpecificRequest))
 	s.mux.HandleFunc("/v1/volumes/claims", s.wrap(s.TaskGroupHostVolumeClaimListRequest))
@@ -499,7 +494,7 @@ func (s *HTTPServer) registerHandlers(enableDebug bool) {
 
 	s.mux.HandleFunc("/v1/agent/pprof/", s.wrapNonJSON(s.AgentPprofRequest))
 
-	s.mux.HandleFunc("/v1/metrics", s.wrap(s.MetricsRequest))
+	registerMetricsEndpoint(s)
 
 	s.mux.HandleFunc("/v1/validate/job", s.wrap(s.ValidateJobRequest))
 
@@ -513,14 +508,13 @@ func (s *HTTPServer) registerHandlers(enableDebug bool) {
 
 	s.mux.HandleFunc("/v1/search/fuzzy", s.wrap(s.FuzzySearchRequest))
 	s.mux.HandleFunc("/v1/search", s.wrap(s.SearchRequest))
-	s.mux.HandleFunc("/v1/operator/license", s.wrap(s.LicenseRequest))
+	registerEnterpriseEndpoints(s)
 	s.mux.HandleFunc("/v1/operator/raft/", s.wrap(s.OperatorRequest))
 	s.mux.HandleFunc("/v1/operator/keyring/", s.wrap(s.KeyringRequest))
 	s.mux.HandleFunc("/v1/operator/autopilot/configuration", s.wrap(s.OperatorAutopilotConfiguration))
 	s.mux.HandleFunc("/v1/operator/autopilot/health", s.wrap(s.OperatorServerHealth))
 	s.mux.HandleFunc("/v1/operator/snapshot", s.wrap(s.SnapshotRequest))
 	s.mux.HandleFunc("/v1/operator/upgrade-check/", s.wrap(s.UpgradeCheckRequest))
-	s.mux.HandleFunc("/v1/operator/utilization", s.wrap(s.OperatorUtilizationRequest))
 
 	s.mux.HandleFunc("/v1/system/gc", s.wrap(s.GarbageCollectRequest))
 	s.mux.HandleFunc("/v1/system/reconcile/summaries", s.wrap(s.ReconcileJobSummaries))
@@ -529,9 +523,6 @@ func (s *HTTPServer) registerHandlers(enableDebug bool) {
 
 	s.mux.HandleFunc("/v1/event/stream", s.wrap(s.EventStream))
 
-	s.mux.HandleFunc("/v1/namespaces", s.wrap(s.NamespacesRequest))
-	s.mux.HandleFunc("/v1/namespace", s.wrap(s.NamespaceCreateRequest))
-	s.mux.HandleFunc("/v1/namespace/", s.wrap(s.NamespaceSpecificRequest))
 
 	s.mux.Handle("/v1/vars", wrapCORS(s.wrap(s.VariablesListRequest)))
 	s.mux.Handle("/v1/var/", wrapCORSWithAllowedMethods(s.wrap(s.VariableSpecificRequest), "HEAD", "GET", "PUT", "DELETE"))

@@ -47,7 +47,6 @@ import (
 	"github.com/hashicorp/nomad/nomad/drainer"
 	"github.com/hashicorp/nomad/nomad/lock"
 	"github.com/hashicorp/nomad/nomad/peers"
-	"github.com/hashicorp/nomad/nomad/reporting"
 	"github.com/hashicorp/nomad/nomad/state"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/nomad/structs/config"
@@ -306,9 +305,9 @@ type Server struct {
 	// Nomad router.
 	statsFetcher *StatsFetcher
 
-	// reportingManager is used to configure and handle all the license reporting
-	// dependencies.
-	reportingManager *reporting.Manager
+	// reportingManager is used to configure and handle all the license
+	// reporting dependencies in full builds.
+	reportingManager buildReportingManager
 
 	// oidcDisco is the OIDC Discovery configuration to be returned by the
 	// Keyring.GetConfig RPC and /.well-known/openid-configuration HTTP API.

@@ -23,13 +23,8 @@ import (
 	"time"
 
 	"github.com/hashicorp/cli"
-	checkpoint "github.com/hashicorp/go-checkpoint"
-	discover "github.com/hashicorp/go-discover"
 	hclog "github.com/hashicorp/go-hclog"
 	metrics "github.com/hashicorp/go-metrics/compat"
-	"github.com/hashicorp/go-metrics/compat/circonus"
-	"github.com/hashicorp/go-metrics/compat/datadog"
-	"github.com/hashicorp/go-metrics/compat/prometheus"
 	gsyslog "github.com/hashicorp/go-syslog"
 	"github.com/hashicorp/nomad/helper"
 	flaghelper "github.com/hashicorp/nomad/helper/flags"
@@ -571,6 +566,11 @@ func (c *Command) IsValidConfig(config, cmdConfig *Config) bool {
 		}
 	}
 
+	if err := validateBuildProfileConfig(config); err != nil {
+		c.Ui.Error(err.Error())
+		return false
+	}
+
 	return true
 }
 
@@ -691,51 +691,9 @@ func (c *Command) setupAgent(config *Config, logger hclog.InterceptLogger, logOu
 	}
 	c.httpServers = httpServers
 
-	// If DisableUpdateCheck is not enabled, set up update checking
-	// (DisableUpdateCheck is false by default)
-	if config.DisableUpdateCheck != nil && !*config.DisableUpdateCheck {
-		version := config.Version.Version
-		if config.Version.VersionPrerelease != "" {
-			version += fmt.Sprintf("-%s", config.Version.VersionPrerelease)
-		}
-		updateParams := &checkpoint.CheckParams{
-			Product: "nomad",
-			Version: version,
-		}
-		if !config.DisableAnonymousSignature {
-			updateParams.SignatureFile = filepath.Join(config.DataDir, "checkpoint-signature")
-		}
-
-		// Schedule a periodic check with expected interval of 24 hours
-		checkpoint.CheckInterval(updateParams, 24*time.Hour, c.checkpointResults)
-
-		// Do an immediate check within the next 30 seconds
-		go func() {
-			time.Sleep(helper.RandomStagger(30 * time.Second))
-			c.checkpointResults(checkpoint.Check(updateParams))
-		}()
-	}
+	c.startUpdateCheck(config)
 
 	return nil
-}
-
-// checkpointResults is used to handler periodic results from our update checker
-func (c *Command) checkpointResults(results *checkpoint.CheckResponse, err error) {
-	if err != nil {
-		c.Ui.Error(fmt.Sprintf("Failed to check for updates: %v", err))
-		return
-	}
-	if results.Outdated {
-		c.Ui.Error(fmt.Sprintf("Newer Nomad version available: %s (currently running: %s)", results.CurrentVersion, c.Version.VersionNumber()))
-	}
-	for _, alert := range results.Alerts {
-		switch alert.Level {
-		case "info":
-			c.Ui.Info(fmt.Sprintf("Bulletin [%s]: %s (%s)", alert.Level, alert.Message, alert.URL))
-		default:
-			c.Ui.Error(fmt.Sprintf("Bulletin [%s]: %s (%s)", alert.Level, alert.Message, alert.URL))
-		}
-	}
 }
 
 func (c *Command) AutocompleteFlags() complete.Flags {
@@ -999,7 +957,7 @@ func (c *Command) handleRetryJoin(config *Config) error {
 		len(config.Server.ServerJoin.RetryJoin) != 0 {
 
 		joiner := retryJoiner{
-			autoDiscover: autoDiscover{goDiscover: &discover.Discover{}, netAddrs: &netAddrs{}},
+			autoDiscover: newAutoDiscover(),
 			errCh:        c.retryJoinErrCh,
 			joinCfg:      config.Server.ServerJoin,
 			joinFunc:     c.agent.server.Join,
@@ -1017,7 +975,7 @@ func (c *Command) handleRetryJoin(config *Config) error {
 		config.Client.ServerJoin != nil &&
 		len(config.Client.ServerJoin.RetryJoin) != 0 {
 		joiner := retryJoiner{
-			autoDiscover: autoDiscover{goDiscover: &discover.Discover{}, netAddrs: &netAddrs{}},
+			autoDiscover: newAutoDiscover(),
 			errCh:        c.retryJoinErrCh,
 			joinCfg:      config.Client.ServerJoin,
 			joinFunc:     c.agent.client.SetServers,
@@ -1292,130 +1250,6 @@ func checkNewConfigFiles(previous, current []string) []string {
 	}
 
 	return newFiles
-}
-
-// setupTelemetry is used to set up the telemetry sub-systems.
-func (c *Command) setupTelemetry(config *Config) (*metrics.InmemSink, error) {
-
-	var telConfig *Telemetry
-	if config.Telemetry == nil {
-		telConfig = &Telemetry{}
-	} else {
-		telConfig = config.Telemetry
-	}
-
-	inm := metrics.NewInmemSink(telConfig.inMemoryCollectionInterval, telConfig.inMemoryRetentionPeriod)
-	metrics.DefaultInmemSignal(inm)
-
-	metricsConf := metrics.DefaultConfig("nomad")
-	metricsConf.EnableHostname = !telConfig.DisableHostname
-
-	// Prefer the hostname as a label.
-	metricsConf.EnableHostnameLabel = !telConfig.DisableHostname
-
-	if telConfig.UseNodeName {
-		metricsConf.HostName = config.NodeName
-		metricsConf.EnableHostname = true
-	}
-
-	allowedPrefixes, blockedPrefixes, err := telConfig.PrefixFilters()
-	if err != nil {
-		return inm, err
-	}
-
-	metricsConf.AllowedPrefixes = allowedPrefixes
-	metricsConf.BlockedPrefixes = blockedPrefixes
-
-	if telConfig.FilterDefault != nil {
-		metricsConf.FilterDefault = *telConfig.FilterDefault
-	}
-
-	// Configure the statsite sink
-	var fanout metrics.FanoutSink
-	if telConfig.StatsiteAddr != "" {
-		sink, err := metrics.NewStatsiteSink(telConfig.StatsiteAddr)
-		if err != nil {
-			return inm, err
-		}
-		fanout = append(fanout, sink)
-	}
-
-	// Configure the statsd sink
-	if telConfig.StatsdAddr != "" {
-		sink, err := metrics.NewStatsdSink(telConfig.StatsdAddr)
-		if err != nil {
-			return inm, err
-		}
-		fanout = append(fanout, sink)
-	}
-
-	// Configure the prometheus sink
-	if telConfig.PrometheusMetrics {
-		promSink, err := prometheus.NewPrometheusSink()
-		if err != nil {
-			return inm, err
-		}
-		promSink.RunBackgroundCleanup(context.Background())
-		fanout = append(fanout, promSink)
-	}
-
-	// Configure the datadog sink
-	if telConfig.DataDogAddr != "" {
-		sink, err := datadog.NewDogStatsdSink(telConfig.DataDogAddr, config.NodeName)
-		if err != nil {
-			return inm, err
-		}
-		sink.SetTags(telConfig.DataDogTags)
-		fanout = append(fanout, sink)
-	}
-
-	// Configure the Circonus sink
-	if telConfig.CirconusAPIToken != "" || telConfig.CirconusCheckSubmissionURL != "" {
-		cfg := &circonus.Config{}
-		cfg.Interval = telConfig.CirconusSubmissionInterval
-		cfg.CheckManager.API.TokenKey = telConfig.CirconusAPIToken
-		cfg.CheckManager.API.TokenApp = telConfig.CirconusAPIApp
-		cfg.CheckManager.API.URL = telConfig.CirconusAPIURL
-		cfg.CheckManager.Check.SubmissionURL = telConfig.CirconusCheckSubmissionURL
-		cfg.CheckManager.Check.ID = telConfig.CirconusCheckID
-		cfg.CheckManager.Check.ForceMetricActivation = telConfig.CirconusCheckForceMetricActivation
-		cfg.CheckManager.Check.InstanceID = telConfig.CirconusCheckInstanceID
-		cfg.CheckManager.Check.SearchTag = telConfig.CirconusCheckSearchTag
-		cfg.CheckManager.Check.Tags = telConfig.CirconusCheckTags
-		cfg.CheckManager.Check.DisplayName = telConfig.CirconusCheckDisplayName
-		cfg.CheckManager.Broker.ID = telConfig.CirconusBrokerID
-		cfg.CheckManager.Broker.SelectTag = telConfig.CirconusBrokerSelectTag
-
-		if cfg.CheckManager.Check.DisplayName == "" {
-			cfg.CheckManager.Check.DisplayName = "Nomad"
-		}
-
-		if cfg.CheckManager.API.TokenApp == "" {
-			cfg.CheckManager.API.TokenApp = "nomad"
-		}
-
-		if cfg.CheckManager.Check.SearchTag == "" {
-			cfg.CheckManager.Check.SearchTag = "service:nomad"
-		}
-
-		sink, err := circonus.NewCirconusSink(cfg)
-		if err != nil {
-			return inm, err
-		}
-		sink.Start()
-		fanout = append(fanout, sink)
-	}
-
-	// Initialize the global sink
-	if len(fanout) > 0 {
-		fanout = append(fanout, inm)
-		metrics.NewGlobal(metricsConf, fanout)
-	} else {
-		metricsConf.EnableHostname = false
-		metrics.NewGlobal(metricsConf, inm)
-	}
-
-	return inm, nil
 }
 
 func (c *Command) startupJoin(config *Config) error {

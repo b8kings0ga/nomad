@@ -34,6 +34,7 @@ var (
 // VersionInfo
 type VersionInfo struct {
 	BuildDate         time.Time
+	BuildProfile      string
 	Revision          string
 	Version           string
 	VersionPrerelease string
@@ -73,6 +74,7 @@ func GetVersion() *VersionInfo {
 
 	return &VersionInfo{
 		BuildDate:         built,
+		BuildProfile:      BuildProfile,
 		Revision:          GitCommit,
 		Version:           ver,
 		VersionPrerelease: rel,
@@ -112,6 +114,10 @@ func (v *VersionInfo) FullVersionNumber(rev bool) string {
 
 	if rev && v.Revision != "" {
 		fmt.Fprintf(&versionString, "\nRevision %s", v.Revision)
+	}
+
+	if v.BuildProfile != "" {
+		fmt.Fprintf(&versionString, "\nBuildProfile %s", v.BuildProfile)
 	}
 
 	return versionString.String()
