@@ -6,8 +6,8 @@ package fingerprint
 import (
 	"strings"
 
-	"github.com/hashicorp/consul-template/signals"
 	log "github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/nomad/helper/signals"
 )
 
 // SignalFingerprint is used to fingerprint the available signals
