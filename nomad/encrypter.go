@@ -22,17 +22,11 @@ import (
 	"github.com/go-jose/go-jose/v3/jwt"
 	"github.com/hashicorp/go-hclog"
 	kms "github.com/hashicorp/go-kms-wrapping/v2"
-	"github.com/hashicorp/go-kms-wrapping/wrappers/aead/v2"
-	"github.com/hashicorp/go-kms-wrapping/wrappers/awskms/v2"
-	"github.com/hashicorp/go-kms-wrapping/wrappers/azurekeyvault/v2"
-	"github.com/hashicorp/go-kms-wrapping/wrappers/gcpckms/v2"
-	"github.com/hashicorp/go-kms-wrapping/wrappers/transit/v2"
 	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/helper/crypto"
 	"github.com/hashicorp/nomad/helper/joseutil"
 	"github.com/hashicorp/nomad/nomad/structs"
-	"github.com/hashicorp/nomad/nomad/structs/config"
 	"github.com/hashicorp/raft"
 	"golang.org/x/time/rate"
 )
@@ -109,41 +103,6 @@ func NewEncrypter(srv *Server, keystorePath string) (*Encrypter, error) {
 		return nil, err
 	}
 	return encrypter, nil
-}
-
-// fallbackVaultConfig allows the transit provider to fallback to using the
-// default Vault cluster's configuration block, instead of repeating those
-// fields
-func fallbackVaultConfig(provider *structs.KEKProviderConfig, vaultcfg *config.VaultConfig) {
-
-	setFallback := func(key, cfg, env, fallback string) {
-		if provider.Config == nil {
-			provider.Config = map[string]string{}
-		}
-		if _, ok := provider.Config[key]; !ok {
-			if cfg != "" {
-				provider.Config[key] = cfg
-			} else if envVal := os.Getenv(env); envVal != "" {
-				provider.Config[key] = envVal
-			} else {
-				provider.Config[key] = fallback
-			}
-		}
-	}
-
-	setFallback("address", vaultcfg.Addr, "VAULT_ADDR", "")
-	setFallback("token", vaultcfg.Token, "VAULT_TOKEN", "")
-	setFallback("tls_ca_cert", vaultcfg.TLSCaPath, "VAULT_CACERT", "")
-	setFallback("tls_client_cert", vaultcfg.TLSCertFile, "VAULT_CLIENT_CERT", "")
-	setFallback("tls_client_key", vaultcfg.TLSKeyFile, "VAULT_CLIENT_KEY", "")
-	setFallback("tls_server_name", vaultcfg.TLSServerName, "VAULT_TLS_SERVER_NAME", "")
-
-	// default to false as this will be parsed by the go-kms-wrapping package
-	skipVerify := ""
-	if vaultcfg.TLSSkipVerify != nil {
-		skipVerify = fmt.Sprintf("%v", *vaultcfg.TLSSkipVerify)
-	}
-	setFallback("tls_skip_verify", skipVerify, "VAULT_SKIP_VERIFY", "false")
 }
 
 func (e *Encrypter) loadKeystore() error {
@@ -1052,49 +1011,6 @@ func (e *Encrypter) GetPublicKey(keyID string) (*structs.KeyringPublicKey, error
 	}
 
 	return pubKey, nil
-}
-
-// newKMSWrapper returns a go-kms-wrapping interface the caller can use to
-// encrypt the RootKey with a key encryption key (KEK).
-func (e *Encrypter) newKMSWrapper(provider *structs.KEKProviderConfig, keyID string, kek []byte) (kms.Wrapper, error) {
-	var wrapper kms.Wrapper
-
-	// note: adding support for another provider from go-kms-wrapping is a
-	// matter of adding the dependency and another case here, but the remaining
-	// third-party providers add significantly to binary size
-
-	switch provider.Provider {
-	case structs.KEKProviderAWSKMS:
-		wrapper = awskms.NewWrapper()
-	case structs.KEKProviderAzureKeyVault:
-		wrapper = azurekeyvault.NewWrapper()
-	case structs.KEKProviderGCPCloudKMS:
-		wrapper = gcpckms.NewWrapper()
-	case structs.KEKProviderVaultTransit:
-		wrapper = transit.NewWrapper()
-
-	default: // "aead"
-		wrapper := aead.NewWrapper()
-		_, err := wrapper.SetConfig(context.Background(),
-			aead.WithAeadType(kms.AeadTypeAesGcm),
-			aead.WithHashType(kms.HashTypeSha256),
-			aead.WithKey(kek),
-			kms.WithKeyId(keyID),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("could not configure cipher: %w", err)
-		}
-		return wrapper, nil
-	}
-
-	config, ok := e.providerConfigs[provider.ID()]
-	if ok {
-		_, err := wrapper.SetConfig(context.Background(), kms.WithConfigMap(config.Config))
-		if err != nil {
-			return nil, err
-		}
-	}
-	return wrapper, nil
 }
 
 // KeyringReplicator supports the legacy (pre-1.9.0) keyring management where

@@ -1,6 +1,8 @@
 // Copyright IBM Corp. 2015, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
+//go:build !nomad_min
+
 package getter
 
 import (
@@ -8,12 +10,6 @@ import (
 
 	log "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/helper/subproc"
-)
-
-const (
-	// SubCommand is the first argument to the clone of the nomad
-	// agent process for downloading artifacts.
-	SubCommand = "artifact-isolation"
 )
 
 func init() {

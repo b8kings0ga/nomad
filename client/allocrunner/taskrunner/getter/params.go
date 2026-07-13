@@ -4,16 +4,13 @@
 package getter
 
 import (
-	"context"
 	"encoding/json"
 	"io"
-	"io/fs"
 	"maps"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/hashicorp/go-getter"
 	"github.com/hashicorp/nomad/helper"
 )
 
@@ -37,7 +34,7 @@ type parameters struct {
 	SetEnvironmentVariables       string        `json:"set_environment_variables"`
 
 	// Artifact
-	Mode        getter.ClientMode   `json:"artifact_mode"`
+	Mode        artifactMode        `json:"artifact_mode"`
 	Insecure    bool                `json:"artifact_insecure"`
 	Source      string              `json:"artifact_source"`
 	Destination string              `json:"artifact_destination"`
@@ -130,67 +127,4 @@ func headersCompareFn(a []string, b []string) bool {
 	slices.Sort(a)
 	slices.Sort(b)
 	return slices.Equal(a, b)
-}
-
-const (
-	// stop privilege escalation via setuid/setgid
-	// https://github.com/hashicorp/nomad/issues/6176
-	umask = fs.ModeSetuid | fs.ModeSetgid
-)
-
-func (p *parameters) client(ctx context.Context) *getter.Client {
-	httpGetter := &getter.HttpGetter{
-		Netrc:  true,
-		Header: p.Headers,
-
-		// Do not support the custom X-Terraform-Get header and
-		// associated logic.
-		XTerraformGetDisabled: true,
-
-		// Disable HEAD requests as they can produce corrupt files when
-		// retrying a download of a resource that has changed.
-		// hashicorp/go-getter#219
-		DoNotCheckHeadFirst: true,
-
-		// Read timeout for HTTP operations. Must be long enough to
-		// accommodate large/slow downloads.
-		ReadTimeout: p.HTTPReadTimeout,
-
-		// Maximum download size. Must be large enough to accommodate
-		// large downloads.
-		MaxBytes: p.HTTPMaxBytes,
-	}
-
-	// setup custom decompressors with file count and total size limits
-	decompressors := getter.LimitedDecompressors(
-		p.DecompressionLimitFileCount,
-		p.DecompressionLimitSize,
-	)
-
-	return &getter.Client{
-		Ctx:             ctx,
-		Src:             p.Source,
-		Dst:             p.Destination,
-		Mode:            p.Mode,
-		Insecure:        p.Insecure,
-		Umask:           umask,
-		DisableSymlinks: true,
-		Decompressors:   decompressors,
-		Getters: map[string]getter.Getter{
-			"git": &getter.GitGetter{
-				Timeout: p.GitTimeout,
-			},
-			"hg": &getter.HgGetter{
-				Timeout: p.HgTimeout,
-			},
-			"gcs": &getter.GCSGetter{
-				Timeout: p.GCSTimeout,
-			},
-			"s3": &getter.S3Getter{
-				Timeout: p.S3Timeout,
-			},
-			"http":  httpGetter,
-			"https": httpGetter,
-		},
-	}
 }

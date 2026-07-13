@@ -1,6 +1,8 @@
 // Copyright IBM Corp. 2015, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
+//go:build !nomad_min
+
 package agent
 
 import (
@@ -49,4 +51,8 @@ func (s *HTTPServer) prometheusHandler() http.Handler {
 		promHandler = promhttp.HandlerFor(prometheus.DefaultGatherer, handlerOptions)
 	})
 	return promHandler
+}
+
+func registerMetricsEndpoint(s *HTTPServer) {
+	s.mux.HandleFunc("/v1/metrics", s.wrap(s.MetricsRequest))
 }

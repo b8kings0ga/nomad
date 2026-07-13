@@ -30,9 +30,12 @@ ifeq ($(CI),true)
 GO_TAGS := codegen_generated $(GO_TAGS)
 endif
 
-# Don't embed the Nomad UI when the NOMAD_NO_UI env var is set.
+# Don't embed the Nomad UI when the NOMAD_NO_UI env var is set. The
+# nomad_min profile is always headless, even when NOMAD_NO_UI is unset.
+ifeq (,$(findstring nomad_min,$(GO_TAGS)))
 ifndef NOMAD_NO_UI
 GO_TAGS := ui $(GO_TAGS)
+endif
 endif
 
 # Some Go tools require the tags to be a comma-separated list. Perform a
@@ -109,6 +112,24 @@ endif
 
 pkg/windows_%/nomad: GO_OUT = $@.exe
 pkg/windows_%/nomad: GO_TAGS += timetzdata
+
+NOMAD_MIN_TAGS = hashicorpmetrics release nomad_min
+NOMAD_MIN_LDFLAGS = $(GO_LDFLAGS) -s -w
+
+.PHONY: nomad-min nomad-min-linux-amd64 nomad-min-linux-arm64
+nomad-min: nomad-min-linux-amd64 nomad-min-linux-arm64 ## Build minimal Nomad for Linux amd64 and arm64
+
+nomad-min-linux-amd64: ## Build minimal Nomad for Linux amd64
+	@echo "==> Building pkg/nomad_min/linux_amd64/nomad with tags $(NOMAD_MIN_TAGS)..."
+	@mkdir -p pkg/nomad_min/linux_amd64
+	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+		go build -trimpath -ldflags "$(NOMAD_MIN_LDFLAGS)" -tags "$(NOMAD_MIN_TAGS)" -o pkg/nomad_min/linux_amd64/nomad
+
+nomad-min-linux-arm64: ## Build minimal Nomad for Linux arm64
+	@echo "==> Building pkg/nomad_min/linux_arm64/nomad with tags $(NOMAD_MIN_TAGS)..."
+	@mkdir -p pkg/nomad_min/linux_arm64
+	@CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+		go build -trimpath -ldflags "$(NOMAD_MIN_LDFLAGS)" -tags "$(NOMAD_MIN_TAGS)" -o pkg/nomad_min/linux_arm64/nomad
 
 # Define package targets for each of the build targets we actually have on this system
 define makePackageTarget

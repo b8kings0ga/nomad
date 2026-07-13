@@ -1421,5 +1421,6 @@ func Commands(metaPtr *Meta, agentUi cli.Ui) map[string]cli.CommandFactory {
 
 	maps.Copy(all, EntCommands(metaPtr, agentUi))
 
+	filterCommandsForBuild(all)
 	return all
 }

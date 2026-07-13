@@ -18,7 +18,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/hashicorp/go-getter"
 	"github.com/hashicorp/nomad/client/interfaces"
 	"github.com/hashicorp/nomad/helper/subproc"
 	"github.com/hashicorp/nomad/helper/users"
@@ -79,14 +78,14 @@ func getDestination(env interfaces.EnvReplacer, artifact *structs.TaskArtifact) 
 	return destination, nil
 }
 
-func getMode(artifact *structs.TaskArtifact) getter.ClientMode {
+func getMode(artifact *structs.TaskArtifact) artifactMode {
 	switch artifact.GetterMode {
 	case structs.GetterModeFile:
-		return getter.ClientModeFile
+		return artifactModeFile
 	case structs.GetterModeDir:
-		return getter.ClientModeDir
+		return artifactModeDir
 	default:
-		return getter.ClientModeAny
+		return artifactModeAny
 	}
 }
 
@@ -315,7 +314,7 @@ func (s *Sandbox) runCmd(env *parameters) error {
 
 	// if in file mode, simply move the file into place. otherwise
 	// merge the directories.
-	if env.Mode == getter.ClientModeFile {
+	if env.Mode == artifactModeFile {
 		if err := at.MkdirAll(filepath.Dir(atFinalDest), 0755); err != nil {
 			return err
 		}
