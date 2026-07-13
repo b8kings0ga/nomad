@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/client/serviceregistration"
 	"github.com/hashicorp/nomad/client/serviceregistration/checks/checkstore"
@@ -587,11 +586,11 @@ func evaluateConsulChecks(services []*structs.Service, registrations *servicereg
 			for _, check := range service.Checks {
 				onUpdate := service.CheckOnUpdate[check.CheckID]
 				switch check.Status {
-				case api.HealthWarning:
+				case "warning":
 					if onUpdate != structs.OnUpdateIgnoreWarn && onUpdate != structs.OnUpdateIgnore {
 						return false
 					}
-				case api.HealthCritical:
+				case "critical":
 					if onUpdate != structs.OnUpdateIgnore {
 						return false
 					}
@@ -604,9 +603,9 @@ func evaluateConsulChecks(services []*structs.Service, registrations *servicereg
 			if service.SidecarService != nil {
 				for _, check := range service.SidecarChecks {
 					switch check.Status {
-					case api.HealthWarning:
+					case "warning":
 						return false
-					case api.HealthCritical:
+					case "critical":
 						return false
 					}
 				}
@@ -748,7 +747,7 @@ func (t *taskHealthState) event(deadline time.Time, healthyDeadline, minHealthyT
 	OUTER:
 		for _, sreg := range t.taskRegistrations.Services {
 			for _, check := range sreg.Checks {
-				if check.Status != api.HealthPassing {
+				if check.Status != "passing" {
 					notPassing = append(notPassing, sreg.Service.Service)
 					continue OUTER
 				} else {

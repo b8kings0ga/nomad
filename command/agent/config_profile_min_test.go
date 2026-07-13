@@ -23,7 +23,7 @@ func TestMinimalConfigDisablesImplicitIntegrations(t *testing.T) {
 
 func TestMinimalConfigRejectsIntegrationConfig(t *testing.T) {
 	config := DefaultConfig()
-	config.Consuls[0].Addr = "127.0.0.1:8500"
+	config.Consuls[0].Addr = "consul.example:8500"
 	if err := validateBuildProfileConfig(config); err == nil {
 		t.Fatal("expected consul configuration rejection")
 	}

@@ -10,7 +10,6 @@ import (
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/nomad/client/allocrunner/interfaces"
 	clientconfig "github.com/hashicorp/nomad/client/config"
-	"github.com/hashicorp/nomad/client/consul"
 	"github.com/hashicorp/nomad/client/taskenv"
 	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/nomad/structs"
@@ -112,16 +111,9 @@ func (ar *allocRunner) initRunnerHooks(config *clientconfig.Config) error {
 		newIdentityHook(hookLogger, ar.widmgr),
 		newAllocDirHook(hookLogger, ar.allocDir),
 		newMaxRunDurationHook(hookLogger, alloc, ar.clientBaseLabels, ar.EnforceMaxRunDurationTimeout),
-		newConsulHook(consulHookConfig{
-			alloc:                   ar.alloc,
-			allocdir:                ar.allocDir,
-			widmgr:                  ar.widmgr,
-			consulConfigs:           ar.clientConfig.GetConsulConfigs(hookLogger),
-			consulClientConstructor: consul.NewConsulClientFactory(config),
-			hookResources:           ar.hookResources,
-			logger:                  hookLogger,
-			db:                      ar.stateDB,
-		}),
+	}
+	ar.runnerHooks = appendConsulAllocHook(ar.runnerHooks, ar, config, hookLogger)
+	ar.runnerHooks = append(ar.runnerHooks,
 		newUpstreamAllocsHook(hookLogger, ar.prevAllocWatcher),
 		newDiskMigrationHook(hookLogger, ar.prevAllocMigrator, ar.allocDir),
 		newCPUPartsHook(hookLogger, ar.partitions, alloc),
@@ -137,12 +129,9 @@ func (ar *allocRunner) initRunnerHooks(config *clientconfig.Config) error {
 			logger:            hookLogger,
 			shutdownDelayCtx:  ar.shutdownDelayCtx,
 		}),
-		newConsulGRPCSocketHook(hookLogger, alloc, ar.allocDir,
-			config.GetConsulConfigs(ar.logger), config.Node.Attributes),
-		newConsulHTTPSocketHook(hookLogger, alloc, ar.allocDir,
-			config.GetConsulConfigs(ar.logger)),
-		newChecksHook(hookLogger, alloc, ar.checkStore, ar),
-	}
+	)
+	ar.runnerHooks = appendConsulSocketHooks(ar.runnerHooks, ar, config, hookLogger, alloc)
+	ar.runnerHooks = append(ar.runnerHooks, newChecksHook(hookLogger, alloc, ar.checkStore, ar))
 	ar.runnerHooks = appendCSIAllocHook(ar.runnerHooks, alloc, hookLogger, ar)
 	if config.ExtraAllocHooks != nil {
 		ar.runnerHooks = append(ar.runnerHooks, config.ExtraAllocHooks...)

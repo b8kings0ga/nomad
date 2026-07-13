@@ -924,7 +924,13 @@ func TestCNI_setupTproxyArgs(t *testing.T) {
 			iptablesCfg, err := c.setupTransparentProxyArgs(alloc, spec, portMaps)
 			if tc.expectErr == "" {
 				must.NoError(t, err)
-				must.Eq(t, tc.expectIPConfig, iptablesCfg)
+				if iptablesCfg == nil {
+					must.Nil(t, tc.expectIPConfig)
+				} else {
+					actual, ok := iptablesCfg.config.(*iptables.Config)
+					must.True(t, ok)
+					must.Eq(t, tc.expectIPConfig, actual)
+				}
 			} else {
 				must.EqError(t, err, tc.expectErr)
 				must.Nil(t, iptablesCfg)
