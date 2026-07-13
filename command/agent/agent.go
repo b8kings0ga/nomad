@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	consulapi "github.com/hashicorp/consul/api"
 	log "github.com/hashicorp/go-hclog"
 	metrics "github.com/hashicorp/go-metrics/compat"
 	uuidparse "github.com/hashicorp/go-uuid"
@@ -1764,62 +1763,7 @@ func (a *Agent) GetMetricsSink() *metrics.InmemSink {
 }
 
 func (a *Agent) setupConsuls(cfgs []*config.ConsulConfig) error {
-
-	isClient := false
-	if a.config.Client != nil && a.config.Client.Enabled {
-		isClient = true
-	}
-
-	a.consulServices = consul.NewServiceClientWrapper()
-	consulProxies := map[string]*consul.ConnectProxies{}
-	consulConfigEntries := map[string]consul.ConfigAPI{}
-
-	for _, consulConfig := range cfgs {
-		cluster := consulConfig.Name
-		apiConf, err := consulConfig.ApiConfig()
-		if err != nil {
-			return err
-		}
-
-		consulClient, err := consulapi.NewClient(apiConf)
-		if err != nil {
-			return err
-		}
-
-		// Create Consul ConfigEntries client for managing Config Entries.
-		consulConfigEntries[cluster] = consulClient.ConfigEntries()
-
-		if cluster == structs.ConsulDefaultCluster {
-			// Create Consul ACL client for managing tokens in the legacy
-			// workflow on the server
-			a.consulACLs = consulClient.ACL()
-
-			// Create Consul Catalog client for self service discovery.
-			a.consulCatalog = consulClient.Catalog()
-		}
-
-		// Create Consul Service client for service advertisement and checks.
-		consulAgentClient := consulClient.Agent()
-		namespacesClient := consul.NewNamespacesClient(consulClient.Namespaces(), consulAgentClient)
-
-		a.consulServices.AddClient(cluster,
-			consul.NewServiceClient(consulAgentClient, namespacesClient, a.logger, isClient))
-		consulProxies[cluster] = consul.NewConnectProxiesClient(consulAgentClient)
-	}
-
-	a.consulProxiesFunc = func(cluster string) clientconsul.SupportedProxiesAPI {
-		return consulProxies[cluster]
-	}
-
-	a.consulConfigEntriesFunc = func(cluster string) consul.ConfigAPI {
-		return consulConfigEntries[cluster]
-	}
-
-	// Run the each Consul service client's sync'ing main loop (will spawn a
-	// goroutine for each one)
-	a.consulServices.Run()
-
-	return nil
+	return a.setupConsulsProfile(cfgs)
 }
 
 // noOpAuditor is a no-op Auditor that fulfills the

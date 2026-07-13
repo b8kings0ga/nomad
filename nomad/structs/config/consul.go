@@ -4,16 +4,10 @@
 package config
 
 import (
-	"fmt"
-	"net/http"
 	"slices"
-	"strings"
 	"time"
 
-	consul "github.com/hashicorp/consul/api"
-	"github.com/hashicorp/go-secure-stdlib/listenerutil"
-
-	"github.com/hashicorp/nomad/nomad/structs"
+	"github.com/hashicorp/nomad/helper/pointer"
 )
 
 // ConsulConfig contains the configuration information necessary to
@@ -185,37 +179,6 @@ type ConsulConfig struct {
 	ExtraKeysHCL []string `mapstructure:",unusedKeys" json:"-"`
 }
 
-// DefaultConsulConfig returns the canonical defaults for the Nomad
-// `consul` configuration. Uses Consul's default configuration which reads
-// environment variables.
-func DefaultConsulConfig() *ConsulConfig {
-	def := consul.DefaultConfig()
-	return &ConsulConfig{
-		Name:                      "default",
-		ServerServiceName:         "nomad",
-		ServerHTTPCheckName:       "Nomad Server HTTP Check",
-		ServerSerfCheckName:       "Nomad Server Serf Check",
-		ServerRPCCheckName:        "Nomad Server RPC Check",
-		ClientServiceName:         "nomad-client",
-		ClientHTTPCheckName:       "Nomad Client HTTP Check",
-		AutoAdvertise:             new(true),
-		ChecksUseAdvertise:        new(false),
-		ServerAutoJoin:            new(true),
-		ClientAutoJoin:            new(true),
-		Timeout:                   5 * time.Second,
-		ServiceIdentityAuthMethod: structs.ConsulWorkloadsDefaultAuthMethodName,
-		TaskIdentityAuthMethod:    structs.ConsulWorkloadsDefaultAuthMethodName,
-
-		// From Consul api package defaults
-		Addr:      def.Address,
-		EnableSSL: new(def.Scheme == "https"),
-		VerifySSL: new(!def.TLSConfig.InsecureSkipVerify),
-		CAFile:    def.TLSConfig.CAFile,
-		Namespace: def.Namespace,
-		Token:     def.Token,
-	}
-}
-
 // Merge merges two Consul Configurations together.
 func (c *ConsulConfig) Merge(b *ConsulConfig) *ConsulConfig {
 	result := c.Copy()
@@ -330,68 +293,6 @@ func (c *ConsulConfig) Merge(b *ConsulConfig) *ConsulConfig {
 	}
 
 	return result
-}
-
-// ApiConfig returns a usable Consul config that can be passed directly to
-// hashicorp/consul/api.  NOTE: datacenter is not set
-func (c *ConsulConfig) ApiConfig() (*consul.Config, error) {
-	// Get the default config from consul to reuse things like the default
-	// http.Transport.
-	config := consul.DefaultConfig()
-	if c.Addr != "" {
-		ipStr, err := listenerutil.ParseSingleIPTemplate(c.Addr)
-		if err != nil {
-			return nil, fmt.Errorf("unable to parse address template %q: %v", c.Addr, err)
-		}
-		config.Address = ipStr
-	}
-	if c.Token != "" {
-		config.Token = c.Token
-	}
-	if c.Timeout != 0 {
-		// Create a custom Client to set the timeout
-		if config.HttpClient == nil {
-			config.HttpClient = &http.Client{}
-		}
-		config.HttpClient.Timeout = c.Timeout
-		config.HttpClient.Transport = config.Transport
-	}
-	if c.Auth != "" {
-		var username, password string
-		if strings.Contains(c.Auth, ":") {
-			split := strings.SplitN(c.Auth, ":", 2)
-			username = split[0]
-			password = split[1]
-		} else {
-			username = c.Auth
-		}
-
-		config.HttpAuth = &consul.HttpBasicAuth{
-			Username: username,
-			Password: password,
-		}
-	}
-	if c.EnableSSL != nil && *c.EnableSSL {
-		config.Scheme = "https"
-		config.TLSConfig = consul.TLSConfig{
-			Address:  config.Address,
-			CAFile:   c.CAFile,
-			CertFile: c.CertFile,
-			KeyFile:  c.KeyFile,
-		}
-		if c.VerifySSL != nil {
-			config.TLSConfig.InsecureSkipVerify = !*c.VerifySSL
-		}
-		tlsConfig, err := consul.SetupTLSConfig(&config.TLSConfig)
-		if err != nil {
-			return nil, err
-		}
-		config.Transport.TLSClientConfig = tlsConfig
-	}
-	if c.Namespace != "" {
-		config.Namespace = c.Namespace
-	}
-	return config, nil
 }
 
 // Copy returns a copy of this Consul config.

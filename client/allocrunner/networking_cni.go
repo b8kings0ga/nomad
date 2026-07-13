@@ -17,21 +17,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	cni "github.com/containerd/go-cni"
 	cnilibrary "github.com/containernetworking/cni/libcni"
-	consulIPTables "github.com/hashicorp/consul/sdk/iptables"
 	log "github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/go-set/v3"
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/nomad/client/taskenv"
-	"github.com/hashicorp/nomad/helper"
-	"github.com/hashicorp/nomad/helper/envoy"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/drivers"
 )
@@ -107,6 +101,11 @@ const (
 	ConsulIPTablesConfigEnvVar = "CONSUL_IPTABLES_CONFIG"
 )
 
+type transparentProxyArgs struct {
+	config      any
+	consulDNSIP string
+}
+
 // Adds user inputted custom CNI args to cniArgs map
 func addCustomCNIArgs(networks []*structs.NetworkResource, cniArgs map[string]string) {
 	for _, net := range networks {
@@ -176,7 +175,7 @@ func (c *cniNetworkConfigurator) Setup(ctx context.Context, alloc *structs.Alloc
 		return nil, err
 	}
 	if tproxyArgs != nil {
-		iptablesCfg, err := json.Marshal(tproxyArgs)
+		iptablesCfg, err := json.Marshal(tproxyArgs.config)
 		if err != nil {
 			return nil, err
 		}
@@ -247,7 +246,7 @@ func (c *cniNetworkConfigurator) Setup(ctx context.Context, alloc *structs.Alloc
 
 	// overwrite the nameservers with Consul DNS, if we have it; we don't need
 	// the port because the iptables rule redirects port 53 traffic to it
-	if tproxyArgs != nil && tproxyArgs.ConsulDNSIP != "" {
+	if tproxyArgs != nil && tproxyArgs.consulDNSIP != "" {
 		if allocNet.DNS == nil {
 			allocNet.DNS = &structs.DNSConfig{
 				Servers:  []string{},
@@ -255,184 +254,10 @@ func (c *cniNetworkConfigurator) Setup(ctx context.Context, alloc *structs.Alloc
 				Options:  []string{},
 			}
 		}
-		allocNet.DNS.Servers = []string{tproxyArgs.ConsulDNSIP}
+		allocNet.DNS.Servers = []string{tproxyArgs.consulDNSIP}
 	}
 
 	return allocNet, nil
-}
-
-// setupTransparentProxyArgs returns a Consul SDK iptables configuration if the
-// allocation has a transparent_proxy block
-func (c *cniNetworkConfigurator) setupTransparentProxyArgs(alloc *structs.Allocation, spec *drivers.NetworkIsolationSpec, portMaps *portMappings) (*consulIPTables.Config, error) {
-
-	var tproxy *structs.ConsulTransparentProxy
-	var cluster string
-	var proxyUID string
-	var proxyInboundPort int
-	var proxyOutboundPort int
-
-	var exposePorts []string
-	outboundPorts := []string{}
-
-	tg := alloc.Job.LookupTaskGroup(alloc.TaskGroup)
-	for _, svc := range tg.Services {
-
-		if svc.Connect.HasTransparentProxy() {
-
-			tproxy = svc.Connect.SidecarService.Proxy.TransparentProxy
-			cluster = svc.Cluster
-
-			// The default value matches the Envoy UID. The cluster admin can
-			// set this value to something non-default if they have a custom
-			// Envoy container with a different UID
-			proxyUID = c.nodeMeta[envoy.DefaultTransparentProxyUIDParam]
-			if tproxy.UID != "" {
-				proxyUID = tproxy.UID
-			}
-
-			// The value for the outbound Envoy port. The default value matches
-			// the default TransparentProxy service default for
-			// OutboundListenerPort. If the cluster admin sets this value to
-			// something non-default, they'll need to update the metadata on all
-			// the nodes to match. see also:
-			// https://developer.hashicorp.com/consul/docs/connect/config-entries/service-defaults#transparentproxy
-			if tproxy.OutboundPort != 0 {
-				proxyOutboundPort = int(tproxy.OutboundPort)
-			} else {
-				outboundPortAttr := c.nodeMeta[envoy.DefaultTransparentProxyOutboundPortParam]
-				parsedOutboundPort, err := strconv.ParseUint(outboundPortAttr, 10, 16)
-				if err != nil {
-					return nil, fmt.Errorf(
-						"could not parse default_outbound_port %q as port number: %w",
-						outboundPortAttr, err)
-				}
-				proxyOutboundPort = int(parsedOutboundPort)
-			}
-
-			// The inbound port is the service port exposed on the Envoy proxy
-			envoyPortLabel := "connect-proxy-" + svc.Name
-			if envoyPort, ok := portMaps.get(envoyPortLabel); ok {
-				proxyInboundPort = int(envoyPort.HostPort)
-			}
-
-			// Extra user-defined ports that get excluded from outbound redirect
-			if len(tproxy.ExcludeOutboundPorts) == 0 {
-				outboundPorts = nil
-			} else {
-				outboundPorts = helper.ConvertSlice(tproxy.ExcludeOutboundPorts,
-					func(p uint16) string { return fmt.Sprint(p) })
-			}
-
-			// The set of ports we'll exclude from inbound redirection
-			exposePortSet := set.From(exposePorts)
-
-			// We always expose reserved ports so that the allocation is
-			// reachable from the outside world.
-			for _, network := range tg.Networks {
-				for _, port := range network.ReservedPorts {
-					exposePortSet.Insert(fmt.Sprint(port.To))
-				}
-			}
-
-			// ExcludeInboundPorts can be either a numeric port number or a port
-			// label that we need to convert into a port number
-			for _, portLabel := range tproxy.ExcludeInboundPorts {
-				if _, err := strconv.ParseUint(portLabel, 10, 16); err == nil {
-					exposePortSet.Insert(portLabel)
-					continue
-				}
-				if port, ok := portMaps.get(portLabel); ok {
-					exposePortSet.Insert(
-						strconv.FormatInt(int64(port.ContainerPort), 10))
-				}
-			}
-
-			// We also exclude Expose.Paths. Any health checks with expose=true
-			// will have an Expose block added by the server, so this allows
-			// health checks to work as expected without passing thru Envoy
-			if svc.Connect.SidecarService.Proxy.Expose != nil {
-				for _, path := range svc.Connect.SidecarService.Proxy.Expose.Paths {
-					if port, ok := portMaps.get(path.ListenerPort); ok {
-						exposePortSet.Insert(
-							strconv.FormatInt(int64(port.ContainerPort), 10))
-					}
-				}
-			}
-
-			if exposePortSet.Size() > 0 {
-				exposePorts = exposePortSet.Slice()
-				slices.Sort(exposePorts)
-			}
-
-			// Only one Connect block is allowed with tproxy. This will have
-			// been validated on job registration
-			break
-		}
-	}
-
-	if tproxy != nil {
-		var dnsAddr string
-		var dnsPort int
-		if !tproxy.NoDNS {
-			dnsAddr, dnsPort = c.dnsFromAttrs(cluster)
-		}
-
-		consulIPTablesCfgMap := &consulIPTables.Config{
-			// Traffic in the DNSChain is directed to the Consul DNS Service IP.
-			// For outbound TCP and UDP traffic going to port 53 (DNS), jump to
-			// the DNSChain. Only redirect traffic that's going to consul's DNS
-			// IP.
-			ConsulDNSIP:   dnsAddr,
-			ConsulDNSPort: dnsPort,
-
-			// Don't redirect proxy traffic back to itself, return it to the
-			// next chain for processing.
-			ProxyUserID: proxyUID,
-
-			// Redirects inbound TCP traffic hitting the PROXY_IN_REDIRECT chain
-			// to Envoy's inbound listener port.
-			ProxyInboundPort: proxyInboundPort,
-
-			// Redirects outbound TCP traffic hitting PROXY_REDIRECT chain to
-			// Envoy's outbound listener port.
-			ProxyOutboundPort: proxyOutboundPort,
-
-			ExcludeInboundPorts:  exposePorts,
-			ExcludeOutboundPorts: outboundPorts,
-			ExcludeOutboundCIDRs: tproxy.ExcludeOutboundCIDRs,
-			ExcludeUIDs:          tproxy.ExcludeUIDs,
-			NetNS:                spec.Path,
-		}
-
-		return consulIPTablesCfgMap, nil
-	}
-
-	return nil, nil
-}
-
-func (c *cniNetworkConfigurator) dnsFromAttrs(cluster string) (string, int) {
-	var dnsAddrAttr, dnsPortAttr string
-	if cluster == structs.ConsulDefaultCluster || cluster == "" {
-		dnsAddrAttr = "unique.consul.dns.addr"
-		dnsPortAttr = "consul.dns.port"
-	} else {
-		dnsAddrAttr = "unique.consul." + cluster + ".dns.addr"
-		dnsPortAttr = "consul." + cluster + ".dns.port"
-	}
-
-	dnsAddr, ok := c.nodeAttrs[dnsAddrAttr]
-	if !ok || dnsAddr == "" {
-		return "", 0
-	}
-	dnsPort, ok := c.nodeAttrs[dnsPortAttr]
-	if !ok || dnsPort == "0" || dnsPort == "-1" {
-		return "", 0
-	}
-	port, err := strconv.ParseUint(dnsPort, 10, 16)
-	if err != nil {
-		return "", 0 // note: this will have been checked in fingerprint
-	}
-	return dnsAddr, int(port)
 }
 
 // cniToAllocNet converts a cni.Result to an AllocNetworkStatus or returns an

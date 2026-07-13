@@ -64,24 +64,8 @@ func (tr *TaskRunner) initHooks() {
 		newDynamicUsersHook(tr.killCtx, tr.driverCapabilities.DynamicWorkloadUsers, tr.logger, tr.users),
 		newTaskDirHook(tr, hookLogger),
 		newIdentityHook(tr, hookLogger),
-		newConsulHook(hookLogger, tr),
 	}
-	// If Vault is enabled, add the hook
-	if task.Vault != nil && tr.vaultClientFunc != nil {
-		tr.runnerHooks = append(tr.runnerHooks, newVaultHook(&vaultHookConfig{
-			vaultBlock:       task.Vault,
-			vaultConfigsFunc: tr.clientConfig.GetVaultConfigs,
-			clientFunc:       tr.vaultClientFunc,
-			events:           tr,
-			lifecycle:        tr,
-			updater:          tr,
-			logger:           hookLogger,
-			alloc:            tr.Alloc(),
-			task:             tr.Task(),
-			taskCtx:          tr.shutdownCtx,
-			widmgr:           tr.widmgr,
-		}))
-	}
+	tr.runnerHooks = appendIntegrationTokenHooks(tr.runnerHooks, tr, task, hookLogger)
 
 	tr.runnerHooks = appendSecretsHook(tr.runnerHooks, tr, task)
 
@@ -130,52 +114,7 @@ func (tr *TaskRunner) initHooks() {
 		logger:            hookLogger,
 	}))
 
-	// If this is a Connect sidecar proxy (or a Connect Native) service,
-	// add the sidsHook for requesting a Service Identity token (if ACLs).
-	if task.UsesConnect() {
-		tg := tr.Alloc().Job.LookupTaskGroup(tr.Alloc().TaskGroup)
-
-		consulCfg := tr.clientConfig.GetConsulConfigs(tr.logger)[task.GetConsulClusterName(tg)]
-
-		// Enable the Service Identity hook only if the Nomad client is configured
-		// with a consul token, indicating that Consul ACLs are enabled
-		if consulCfg != nil && consulCfg.Token != "" {
-			tr.runnerHooks = append(tr.runnerHooks, newSIDSHook(sidsHookConfig{
-				alloc:              tr.Alloc(),
-				task:               tr.Task(),
-				lifecycle:          tr,
-				logger:             hookLogger,
-				allocHookResources: tr.allocHookResources,
-			}))
-		}
-
-		if task.UsesConnectSidecar() {
-			tr.runnerHooks = append(tr.runnerHooks,
-				newEnvoyVersionHook(newEnvoyVersionHookConfig(alloc, tr.consulProxiesClientFunc, hookLogger)),
-				newEnvoyBootstrapHook(newEnvoyBootstrapHookConfig(alloc,
-					consulCfg,
-					consulNamespace,
-					tr.consulServiceClient,
-					tr.clientConfig.Node,
-					hookLogger)),
-			)
-		} else if task.Kind.IsConnectNative() {
-			tr.runnerHooks = append(tr.runnerHooks, newConnectNativeHook(
-				newConnectNativeHookConfig(alloc, consulCfg, hookLogger),
-			))
-		}
-	}
-
-	// Always add the script checks hook. A task with no script check hook on
-	// initial registration may be updated to include script checks, which must
-	// be handled with this hook.
-	tr.runnerHooks = append(tr.runnerHooks, newScriptCheckHook(scriptCheckHookConfig{
-		alloc:           tr.Alloc(),
-		task:            tr.Task(),
-		consul:          tr.consulServiceClient,
-		logger:          hookLogger,
-		arHookResources: tr.allocHookResources,
-	}))
+	tr.runnerHooks = appendIntegrationServiceHooks(tr.runnerHooks, tr, task, alloc, consulNamespace, hookLogger)
 
 	// If this task has a pause schedule, initialize the pause (Enterprise)
 	if task.Schedule != nil {

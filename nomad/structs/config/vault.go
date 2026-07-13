@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/nomad/helper/pointer"
-	vault "github.com/hashicorp/vault/api"
 )
 
 const (
@@ -173,31 +172,6 @@ func (c *VaultConfig) Merge(b *VaultConfig) *VaultConfig {
 	}
 
 	return &result
-}
-
-// ApiConfig returns a usable Vault config that can be passed directly to
-// hashicorp/vault/api.
-func (c *VaultConfig) ApiConfig() (*vault.Config, error) {
-	conf := vault.DefaultConfig()
-	tlsConf := &vault.TLSConfig{
-		CACert:        c.TLSCaFile,
-		CAPath:        c.TLSCaPath,
-		ClientCert:    c.TLSCertFile,
-		ClientKey:     c.TLSKeyFile,
-		TLSServerName: c.TLSServerName,
-	}
-	if c.TLSSkipVerify != nil {
-		tlsConf.Insecure = *c.TLSSkipVerify
-	} else {
-		tlsConf.Insecure = false
-	}
-
-	if err := conf.ConfigureTLS(tlsConf); err != nil {
-		return nil, err
-	}
-
-	conf.Address = c.Addr
-	return conf, nil
 }
 
 // Copy returns a copy of this Vault config.

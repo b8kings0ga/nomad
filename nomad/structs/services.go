@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-set/v3"
 	"github.com/hashicorp/nomad/helper"
@@ -298,11 +297,11 @@ func (sc *ServiceCheck) validateCommon(allowableTypes []string) error {
 	// validate the initial status
 	switch sc.InitialStatus {
 	case "":
-	case api.HealthPassing:
-	case api.HealthWarning:
-	case api.HealthCritical:
+	case "passing":
+	case "warning":
+	case "critical":
 	default:
-		return fmt.Errorf(`invalid initial check state (%s), must be one of %q, %q, %q or empty`, sc.InitialStatus, api.HealthPassing, api.HealthWarning, api.HealthCritical)
+		return fmt.Errorf(`invalid initial check state (%s), must be one of %q, %q, %q or empty`, sc.InitialStatus, "passing", "warning", "critical")
 	}
 
 	// validate address_mode
@@ -873,12 +872,8 @@ func (s *Service) validateConsulService(mErr *multierror.Error) {
 	}
 
 	// validate the consul service kind
-	switch api.ServiceKind(s.Kind) {
-	case api.ServiceKindTypical,
-		api.ServiceKindAPIGateway,
-		api.ServiceKindIngressGateway,
-		api.ServiceKindMeshGateway,
-		api.ServiceKindTerminatingGateway:
+	switch s.Kind {
+	case "", "api-gateway", "ingress-gateway", "mesh-gateway", "terminating-gateway":
 	default:
 		mErr.Errors = append(mErr.Errors, fmt.Errorf("Service %s kind must be one of consul service kind or empty", s.Name))
 	}

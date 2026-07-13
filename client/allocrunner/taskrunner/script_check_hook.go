@@ -1,3 +1,5 @@
+//go:build !nomad_min
+
 // Copyright IBM Corp. 2015, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
@@ -9,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/consul/api"
 	log "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/client/allocrunner/interfaces"
 	tinterfaces "github.com/hashicorp/nomad/client/allocrunner/taskrunner/interfaces"
@@ -373,17 +374,17 @@ func newScriptCheckCallback(s *scriptCheck) taskletCallback {
 		code := params.code
 		err := params.err
 
-		state := api.HealthCritical
+		state := "critical"
 		switch code {
 		case 0:
-			state = api.HealthPassing
+			state = "passing"
 		case 1:
-			state = api.HealthWarning
+			state = "warning"
 		}
 
 		var outputMsg string
 		if err != nil {
-			state = api.HealthCritical
+			state = "critical"
 			outputMsg = err.Error()
 		} else {
 			outputMsg = string(output)
