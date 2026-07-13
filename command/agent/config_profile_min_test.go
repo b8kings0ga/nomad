@@ -34,3 +34,16 @@ func TestMinimalConfigRejectsIntegrationConfig(t *testing.T) {
 		t.Fatal("expected vault configuration rejection")
 	}
 }
+
+func TestMinimalConfigAcceptsExplicitlyDisabledConsulVault(t *testing.T) {
+	config := DefaultConfig()
+	config.Consuls[0].AutoAdvertise = boolPointer(false)
+	config.Consuls[0].ServerAutoJoin = boolPointer(false)
+	config.Consuls[0].ClientAutoJoin = boolPointer(false)
+	config.Vaults[0].Enabled = boolPointer(false)
+	if err := validateBuildProfileConfig(config); err != nil {
+		t.Fatalf("explicitly disabled integrations rejected: %v", err)
+	}
+}
+
+func boolPointer(value bool) *bool { return &value }
