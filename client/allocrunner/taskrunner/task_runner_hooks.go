@@ -106,18 +106,7 @@ func (tr *TaskRunner) initHooks() {
 		newWranglerHook(tr.wranglers, task.Name, alloc.ID, task.UsesCores(), hookLogger),
 	}...)
 
-	// If the task has a CSI block, add the hook.
-	if task.CSIPluginConfig != nil {
-		tr.runnerHooks = append(tr.runnerHooks, newCSIPluginSupervisorHook(
-			&csiPluginSupervisorHookConfig{
-				clientStateDirPath: tr.clientConfig.StateDir,
-				events:             tr,
-				runner:             tr,
-				lifecycle:          tr,
-				capabilities:       tr.driverCapabilities,
-				logger:             hookLogger,
-			}))
-	}
+	tr.runnerHooks = appendCSIPluginHook(tr.runnerHooks, tr, hookLogger)
 
 	// Get the consul namespace for the TG of the allocation.
 	consulNamespace := tr.alloc.ConsulNamespaceForTask(tr.taskName)

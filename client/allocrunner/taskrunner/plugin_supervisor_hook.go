@@ -1,6 +1,8 @@
 // Copyright IBM Corp. 2015, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
+//go:build !nomad_min
+
 package taskrunner
 
 import (
@@ -481,15 +483,4 @@ func (h *csiPluginSupervisorHook) restartTask(ctx context.Context, reason error)
 		true); err != nil {
 		h.logger.Error("failed to restart task", "restart_reason", reason, "error", err)
 	}
-}
-
-func ensureMountpointInserted(mounts []*drivers.MountConfig, mount *drivers.MountConfig) []*drivers.MountConfig {
-	for _, mnt := range mounts {
-		if mnt.IsEqual(mount) {
-			return mounts
-		}
-	}
-
-	mounts = append(mounts, mount)
-	return mounts
 }

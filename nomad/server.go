@@ -1173,14 +1173,6 @@ func (s *Server) setupDeploymentWatcher() error {
 	return nil
 }
 
-// setupVolumeWatcher creates a volume watcher that sends CSI RPCs
-func (s *Server) setupVolumeWatcher() error {
-	s.volumeWatcher = volumewatcher.NewVolumesWatcher(
-		s.logger, NewCSIVolumeEndpoint(s, nil), s.getLeaderAcl())
-
-	return nil
-}
-
 // setupNodeDrainer creates a node drainer which will be enabled when a server
 // becomes a leader.
 func (s *Server) setupNodeDrainer() {
@@ -1311,9 +1303,7 @@ func (s *Server) setupRpcServer(server *rpc.Server, ctx *RPCContext) {
 
 	_ = server.Register(NewACLEndpoint(s, ctx))
 	_ = server.Register(NewAllocEndpoint(s, ctx))
-	_ = server.Register(NewClientCSIEndpoint(s, ctx))
-	_ = server.Register(NewCSIVolumeEndpoint(s, ctx))
-	_ = server.Register(NewCSIPluginEndpoint(s, ctx))
+	registerCSIRPCEndpoints(server, s, ctx)
 	_ = server.Register(NewDeploymentEndpoint(s, ctx))
 	_ = server.Register(NewEvalEndpoint(s, ctx))
 	_ = server.Register(NewJobEndpoints(s, ctx))

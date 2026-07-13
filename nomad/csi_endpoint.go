@@ -1,6 +1,8 @@
 // Copyright IBM Corp. 2015, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
+//go:build !nomad_min
+
 package nomad
 
 import (
@@ -40,21 +42,6 @@ const (
 	csiVolumeTable = "csi_volumes"
 	csiPluginTable = "csi_plugins"
 )
-
-// replySetIndex sets the reply with the last index that modified the table
-func (s *Server) replySetIndex(table string, reply *structs.QueryMeta) error {
-	fmsState := s.fsm.State()
-
-	index, err := fmsState.Index(table)
-	if err != nil {
-		return err
-	}
-	reply.Index = index
-
-	// Set the query response
-	s.setQueryMeta(reply)
-	return nil
-}
 
 // List replies with CSIVolumes, filtered by ACL access
 func (v *CSIVolume) List(args *structs.CSIVolumeListRequest, reply *structs.CSIVolumeListResponse) error {
@@ -672,12 +659,6 @@ func (v *CSIVolume) serializedControllerRPC(pluginID string, fn func() error) er
 			}
 		}
 	}
-}
-
-// allowCSIMount is called on Job register to check mount permission
-func allowCSIMount(aclObj *acl.ACL, namespace string) bool {
-	return aclObj.AllowPluginRead() &&
-		aclObj.AllowNsOp(namespace, acl.NamespaceCapabilityCSIMountVolume)
 }
 
 // Unpublish synchronously sends the NodeUnpublish, NodeUnstage, and
