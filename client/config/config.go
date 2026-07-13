@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/consul-template/config"
 	log "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/client/allocrunner/interfaces"
 	"github.com/hashicorp/nomad/client/lib/numalib"
@@ -746,30 +745,6 @@ func (wc *WaitConfig) Merge(b *WaitConfig) *WaitConfig {
 	return &result
 }
 
-// ToConsulTemplate converts a client WaitConfig instance to a consul-template WaitConfig
-func (wc *WaitConfig) ToConsulTemplate() (*config.WaitConfig, error) {
-	if wc.IsEmpty() {
-		return nil, errors.New("wait config is empty")
-	}
-
-	if err := wc.Validate(); err != nil {
-		return nil, err
-	}
-
-	enabled := wc.Min == nil || *wc.Min != 0 || wc.Max == nil || *wc.Max != 0
-	result := &config.WaitConfig{Enabled: new(enabled)}
-
-	if wc.Min != nil {
-		result.Min = wc.Min
-	}
-
-	if wc.Max != nil {
-		result.Max = wc.Max
-	}
-
-	return result, nil
-}
-
 // RetryConfig is mirrored from templateconfig.WaitConfig because we need to handle
 // the HCL indirection to support mapping in agent.ParseConfigFile.
 // NOTE: Since Consul Template requires pointers, this type uses pointers to fields
@@ -844,8 +819,8 @@ func (rc *RetryConfig) Validate() error {
 
 	// MaxBackoff nil will end up defaulted to 1 minutes. We should validate that
 	// the user supplied backoff does not exceed that.
-	if rc.MaxBackoff == nil && *rc.Backoff > config.DefaultRetryMaxBackoff {
-		return fmt.Errorf("retry config backoff %d is greater than default max_backoff %d", *rc.Backoff, config.DefaultRetryMaxBackoff)
+	if rc.MaxBackoff == nil && *rc.Backoff > time.Minute {
+		return fmt.Errorf("retry config backoff %d is greater than default max_backoff %d", *rc.Backoff, time.Minute)
 	}
 
 	// MaxBackoff == 0 means backoff is unbounded. No need to validate.
@@ -892,29 +867,6 @@ func (rc *RetryConfig) Merge(b *RetryConfig) *RetryConfig {
 	}
 
 	return &result
-}
-
-// ToConsulTemplate converts a client RetryConfig instance to a consul-template RetryConfig
-func (rc *RetryConfig) ToConsulTemplate() (*config.RetryConfig, error) {
-	if err := rc.Validate(); err != nil {
-		return nil, err
-	}
-
-	result := &config.RetryConfig{Enabled: new(true)}
-
-	if rc.Attempts != nil {
-		result.Attempts = rc.Attempts
-	}
-
-	if rc.Backoff != nil {
-		result.Backoff = rc.Backoff
-	}
-
-	if rc.MaxBackoff != nil {
-		result.MaxBackoff = &*rc.MaxBackoff
-	}
-
-	return result, nil
 }
 
 func (c *Config) Copy() *Config {

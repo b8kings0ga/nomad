@@ -83,17 +83,7 @@ func (tr *TaskRunner) initHooks() {
 		}))
 	}
 
-	if len(task.Secrets) > 0 {
-		tr.runnerHooks = append(tr.runnerHooks, newSecretsHook(&secretsHookConfig{
-			logger:         tr.logger,
-			lifecycle:      tr,
-			events:         tr,
-			clientConfig:   tr.clientConfig,
-			envBuilder:     tr.envBuilder,
-			nomadNamespace: tr.alloc.Job.Namespace,
-			jobId:          tr.alloc.Job.ID,
-		}, task.Secrets))
-	}
+	tr.runnerHooks = appendSecretsHook(tr.runnerHooks, tr, task)
 
 	alloc := tr.Alloc()
 	tr.runnerHooks = append(tr.runnerHooks, []interfaces.TaskHook{

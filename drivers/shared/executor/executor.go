@@ -18,7 +18,6 @@ import (
 
 	"github.com/armon/circbuf"
 	"github.com/creack/pty"
-	"github.com/hashicorp/consul-template/signals"
 	hclog "github.com/hashicorp/go-hclog"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/nomad/client/allocdir"
@@ -27,6 +26,7 @@ import (
 	"github.com/hashicorp/nomad/client/lib/fifo"
 	cstructs "github.com/hashicorp/nomad/client/structs"
 	"github.com/hashicorp/nomad/drivers/shared/executor/procstats"
+	"github.com/hashicorp/nomad/helper/signals"
 	"github.com/hashicorp/nomad/plugins/drivers"
 	"github.com/moby/sys/capability"
 )
