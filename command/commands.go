@@ -85,66 +85,6 @@ func Commands(metaPtr *Meta, agentUi cli.Ui) map[string]cli.CommandFactory {
 				Meta: meta,
 			}, nil
 		},
-		"acl auth-method": func() (cli.Command, error) {
-			return &ACLAuthMethodCommand{
-				Meta: meta,
-			}, nil
-		},
-		"acl auth-method create": func() (cli.Command, error) {
-			return &ACLAuthMethodCreateCommand{
-				Meta: meta,
-			}, nil
-		},
-		"acl auth-method delete": func() (cli.Command, error) {
-			return &ACLAuthMethodDeleteCommand{
-				Meta: meta,
-			}, nil
-		},
-		"acl auth-method info": func() (cli.Command, error) {
-			return &ACLAuthMethodInfoCommand{
-				Meta: meta,
-			}, nil
-		},
-		"acl auth-method list": func() (cli.Command, error) {
-			return &ACLAuthMethodListCommand{
-				Meta: meta,
-			}, nil
-		},
-		"acl auth-method update": func() (cli.Command, error) {
-			return &ACLAuthMethodUpdateCommand{
-				Meta: meta,
-			}, nil
-		},
-		"acl binding-rule": func() (cli.Command, error) {
-			return &ACLBindingRuleCommand{
-				Meta: meta,
-			}, nil
-		},
-		"acl binding-rule create": func() (cli.Command, error) {
-			return &ACLBindingRuleCreateCommand{
-				Meta: meta,
-			}, nil
-		},
-		"acl binding-rule delete": func() (cli.Command, error) {
-			return &ACLBindingRuleDeleteCommand{
-				Meta: meta,
-			}, nil
-		},
-		"acl binding-rule info": func() (cli.Command, error) {
-			return &ACLBindingRuleInfoCommand{
-				Meta: meta,
-			}, nil
-		},
-		"acl binding-rule list": func() (cli.Command, error) {
-			return &ACLBindingRuleListCommand{
-				Meta: meta,
-			}, nil
-		},
-		"acl binding-rule update": func() (cli.Command, error) {
-			return &ACLBindingRuleUpdateCommand{
-				Meta: meta,
-			}, nil
-		},
 		"acl bootstrap": func() (cli.Command, error) {
 			return &ACLBootstrapCommand{
 				Meta: meta,
@@ -563,11 +503,6 @@ func Commands(metaPtr *Meta, agentUi cli.Ui) map[string]cli.CommandFactory {
 		},
 		"license get": func() (cli.Command, error) {
 			return &LicenseGetCommand{
-				Meta: meta,
-			}, nil
-		},
-		"login": func() (cli.Command, error) {
-			return &LoginCommand{
 				Meta: meta,
 			}, nil
 		},
@@ -1416,6 +1351,7 @@ func Commands(metaPtr *Meta, agentUi cli.Ui) map[string]cli.CommandFactory {
 			}, nil
 		},
 	}
+	registerExternalAuthCommands(all, meta)
 
 	for k, v := range deprecated {
 		all[k] = v

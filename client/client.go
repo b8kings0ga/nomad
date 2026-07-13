@@ -64,7 +64,6 @@ import (
 	"github.com/hashicorp/nomad/lib/lang"
 	"github.com/hashicorp/nomad/nomad/structs"
 	nconfig "github.com/hashicorp/nomad/nomad/structs/config"
-	"github.com/hashicorp/nomad/plugins/csi"
 	"github.com/hashicorp/nomad/plugins/device"
 	"github.com/shirou/gopsutil/v3/host"
 )
@@ -434,15 +433,7 @@ func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulProxie
 	}
 
 	// initialize the dynamic registry (needs to happen after init)
-	c.dynamicRegistry =
-		dynamicplugins.NewRegistry(c.stateDB, map[string]dynamicplugins.PluginDispenser{
-			dynamicplugins.PluginTypeCSIController: func(info *dynamicplugins.PluginInfo) (interface{}, error) {
-				return csi.NewClient(info.ConnectionInfo.SocketPath, logger.Named("csi_client").With("plugin.name", info.Name, "plugin.type", "controller")), nil
-			},
-			dynamicplugins.PluginTypeCSINode: func(info *dynamicplugins.PluginInfo) (interface{}, error) {
-				return csi.NewClient(info.ConnectionInfo.SocketPath, logger.Named("csi_client").With("plugin.name", info.Name, "plugin.type", "client")), nil
-			},
-		})
+	c.dynamicRegistry = dynamicplugins.NewRegistry(c.stateDB, dynamicPluginDispensers(logger))
 
 	// Setup the clients RPC server
 	c.setupClientRpc(rpcs)

@@ -25,3 +25,15 @@ func registerEnterpriseEndpoints(s *HTTPServer) {
 	s.mux.HandleFunc("/v1/namespace", s.wrap(s.NamespaceCreateRequest))
 	s.mux.HandleFunc("/v1/namespace/", s.wrap(s.NamespaceSpecificRequest))
 }
+
+func registerExternalAuthEndpoints(s *HTTPServer) {
+	s.mux.HandleFunc("/v1/acl/auth-methods", s.wrap(s.ACLAuthMethodListRequest))
+	s.mux.HandleFunc("/v1/acl/auth-method", s.wrap(s.ACLAuthMethodRequest))
+	s.mux.HandleFunc("/v1/acl/auth-method/", s.wrap(s.ACLAuthMethodSpecificRequest))
+	s.mux.HandleFunc("/v1/acl/binding-rules", s.wrap(s.ACLBindingRuleListRequest))
+	s.mux.HandleFunc("/v1/acl/binding-rule", s.wrap(s.ACLBindingRuleRequest))
+	s.mux.HandleFunc("/v1/acl/binding-rule/", s.wrap(s.ACLBindingRuleSpecificRequest))
+	s.mux.HandleFunc("/v1/acl/oidc/auth-url", s.wrap(s.ACLOIDCAuthURLRequest))
+	s.mux.HandleFunc("/v1/acl/oidc/complete-auth", s.wrap(s.ACLOIDCCompleteAuthRequest))
+	s.mux.HandleFunc("/v1/acl/login", s.wrap(s.ACLLoginRequest))
+}

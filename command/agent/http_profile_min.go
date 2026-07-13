@@ -5,6 +5,7 @@
 
 package agent
 
-func registerNodePoolEndpoints(*HTTPServer)   {}
-func registerCSIEndpoints(*HTTPServer)        {}
-func registerEnterpriseEndpoints(*HTTPServer) {}
+func registerNodePoolEndpoints(*HTTPServer)     {}
+func registerCSIEndpoints(*HTTPServer)          {}
+func registerEnterpriseEndpoints(*HTTPServer)   {}
+func registerExternalAuthEndpoints(*HTTPServer) {}
