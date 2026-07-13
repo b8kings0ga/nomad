@@ -37,6 +37,9 @@ func (profileJobHook) Mutate(job *structs.Job) (*structs.Job, []error, error) {
 			}
 		}
 		for _, task := range group.Tasks {
+			if len(task.Secrets) != 0 {
+				return nil, nil, unsupportedJobFeature("secrets block")
+			}
 			if task.Vault != nil {
 				return nil, nil, unsupportedJobFeature("vault")
 			}

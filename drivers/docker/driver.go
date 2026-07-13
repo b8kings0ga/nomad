@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/containerd/errdefs"
-	"github.com/hashicorp/consul-template/signals"
 	hclog "github.com/hashicorp/go-hclog"
 	multierror "github.com/hashicorp/go-multierror"
 	plugin "github.com/hashicorp/go-plugin"
@@ -37,6 +36,7 @@ import (
 	"github.com/hashicorp/nomad/drivers/shared/resolvconf"
 	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/helper/escapingfs"
+	"github.com/hashicorp/nomad/helper/signals"
 	nstructs "github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/base"
 	"github.com/hashicorp/nomad/plugins/drivers"
