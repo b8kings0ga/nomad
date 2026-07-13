@@ -1425,5 +1425,6 @@ func Commands(metaPtr *Meta, agentUi cli.Ui) map[string]cli.CommandFactory {
 		all[k] = v
 	}
 
+	filterCommandsForBuild(all)
 	return all
 }

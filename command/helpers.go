@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/cli"
-	gg "github.com/hashicorp/go-getter"
 	"github.com/hashicorp/nomad/api"
 	flaghelper "github.com/hashicorp/nomad/helper/flags"
 	"github.com/hashicorp/nomad/jobspec2"
@@ -485,41 +484,12 @@ func (j *JobGetter) Get(jpath string) (*api.JobSubmission, *api.Job, error) {
 			return nil, nil, fmt.Errorf("Error jobfile path has to be specified.")
 		}
 
-		jobFile, err := os.CreateTemp("", "jobfile")
+		file, cleanup, err := getJobFile(jpath)
 		if err != nil {
 			return nil, nil, err
 		}
-		defer os.Remove(jobFile.Name())
-
-		if err := jobFile.Close(); err != nil {
-			return nil, nil, err
-		}
-
-		// Get the pwd
-		pwd, err := os.Getwd()
-		if err != nil {
-			return nil, nil, err
-		}
-
-		client := &gg.Client{
-			Src: jpath,
-			Pwd: pwd,
-			Dst: jobFile.Name(),
-
-			// This will prevent copying or writing files through symlinks
-			DisableSymlinks: true,
-		}
-
-		if err := client.Get(); err != nil {
-			return nil, nil, fmt.Errorf("Error getting jobfile from %q: %v", jpath, err)
-		} else {
-			file, err := os.Open(jobFile.Name())
-			if err != nil {
-				return nil, nil, fmt.Errorf("Error opening file %q: %v", jpath, err)
-			}
-			defer file.Close()
-			jobfile = file
-		}
+		defer cleanup()
+		jobfile = file
 	}
 
 	// Parse the JobFile
