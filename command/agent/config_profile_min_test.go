@@ -9,6 +9,12 @@ import "testing"
 
 func TestMinimalConfigDisablesImplicitIntegrations(t *testing.T) {
 	config := DefaultConfig()
+	if config.Server.EnableEventBroker == nil || *config.Server.EnableEventBroker {
+		t.Fatal("event broker remains enabled")
+	}
+	if config.Server.EventBufferSize == nil || *config.Server.EventBufferSize != 0 {
+		t.Fatal("event broker buffer remains allocated")
+	}
 	if err := validateBuildProfileConfig(config); err != nil {
 		t.Fatal(err)
 	}
@@ -21,6 +27,20 @@ func TestMinimalConfigDisablesImplicitIntegrations(t *testing.T) {
 	}
 	if config.Telemetry.DisableAllocationHookMetrics == nil || !*config.Telemetry.DisableAllocationHookMetrics {
 		t.Fatal("allocation hook metrics remain enabled")
+	}
+}
+
+func TestMinimalConfigRejectsEventStream(t *testing.T) {
+	config := DefaultConfig()
+	config.Server.EnableEventBroker = boolPointer(true)
+	if err := validateBuildProfileConfig(config); err == nil {
+		t.Fatal("expected event stream rejection")
+	}
+
+	config = DefaultConfig()
+	config.Server.EventBufferSize = new(100)
+	if err := validateBuildProfileConfig(config); err == nil {
+		t.Fatal("expected event stream buffer rejection")
 	}
 }
 

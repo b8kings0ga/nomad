@@ -12,7 +12,19 @@ import (
 	structconfig "github.com/hashicorp/nomad/nomad/structs/config"
 )
 
+func applyBuildProfileDefaults(config *Config) {
+	config.Server.EnableEventBroker = new(false)
+	config.Server.EventBufferSize = new(0)
+}
+
 func validateBuildProfileConfig(config *Config) error {
+	if config.Server.EnableEventBroker != nil && *config.Server.EnableEventBroker {
+		return fmt.Errorf("nomad_min: unsupported feature event stream")
+	}
+	if config.Server.EventBufferSize != nil && *config.Server.EventBufferSize != 0 {
+		return fmt.Errorf("nomad_min: unsupported feature event stream buffer")
+	}
+
 	if len(config.Consuls) != 1 || config.Consuls[0] == nil {
 		return fmt.Errorf("nomad_min: unsupported feature consul configuration")
 	}

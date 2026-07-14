@@ -5,6 +5,7 @@
 
 package agent
 
+func registerEventEndpoint(*HTTPServer)         {}
 func registerNodePoolEndpoints(*HTTPServer)     {}
 func registerCSIEndpoints(*HTTPServer)          {}
 func registerEnterpriseEndpoints(*HTTPServer)   {}

@@ -5,6 +5,10 @@
 
 package agent
 
+func registerEventEndpoint(s *HTTPServer) {
+	s.mux.HandleFunc("/v1/event/stream", s.wrap(s.EventStream))
+}
+
 func registerNodePoolEndpoints(s *HTTPServer) {
 	s.mux.HandleFunc("/v1/node/pools", s.wrap(s.NodePoolsRequest))
 	s.mux.HandleFunc("/v1/node/pool/", s.wrap(s.NodePoolSpecificRequest))

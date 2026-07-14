@@ -35,3 +35,28 @@ resource accounting depends on it.
 
 The arm64 stripped binary changed from 43,843,746 to 43,778,210 bytes
 (-65,536 bytes, -0.15%). Package size is not the purpose of this change.
+
+## 2026-07-14 event and scheduler pruning
+
+VM: `mimc-memtest`, Linux arm64. The baseline and candidate were built from
+the same v2.0.4 commit and ran concurrently as isolated idle servers with
+separate data directories and ports. The candidate disables the event broker,
+does not register the HTTP or streaming RPC event endpoints, defaults to one
+scheduler worker, and omits the per-task metrics stats hook.
+
+| Build | Run | CPU | RSS avg | RSS max | PSS avg | Threads at end |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| v2.0.4 baseline | 1 | 0.338% | 42,349 KiB | 42,564 KiB | 42,345 KiB | 12 |
+| v2.0.4 baseline | 2 | 0.341% | 45,207 KiB | 45,220 KiB | 45,203 KiB | 14 |
+| v2.0.4 event/scheduler-pruned | 1 | 0.270% | 42,048 KiB | 42,184 KiB | 42,044 KiB | 11 |
+| v2.0.4 event/scheduler-pruned | 2 | 0.409% | 44,724 KiB | 44,804 KiB | 44,720 KiB | 15 |
+
+The two-run mean RSS/PSS fell by about 392 KiB, or 0.9%. CPU and thread count
+did not improve repeatably, so they must not be presented as a measured gain.
+The stripped arm64 binary remained exactly 43,778,210 bytes; this is a runtime
+memory reduction rather than a link-size reduction.
+
+Both isolated servers elected themselves leader. The candidate returned HTTP
+404 for `/v1/event/stream`, and explicitly enabling the removed broker failed
+with `nomad_min: unsupported feature event stream`. The scheduler count remains
+operator-configurable for installations that need more evaluation throughput.
