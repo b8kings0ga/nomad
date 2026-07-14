@@ -21,6 +21,8 @@ concurrency:
 jobs:
   sync-build-package:
     runs-on: ubuntu-24.04
+    env:
+      GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
