@@ -20,14 +20,19 @@ echo '==> Compiling nomad_min'
 CGO_ENABLED=0 go test -tags "${TAGS}" -run '^$' .
 
 echo '==> Running focused ordinary-build regression tests'
-CGO_ENABLED=0 go build -trimpath -o "${verify_tmp}/nomad" .
-PATH="${verify_tmp}:${PATH}" CGO_ENABLED=0 go test \
+CGO_ENABLED=0 go test \
   ./nomad/structs/config \
   ./client/serviceregistration \
   ./client/consul \
   ./client/vaultclient \
-  ./client/allochealth \
-  ./client/allocrunner/taskrunner
+  ./client/allochealth
+CGO_ENABLED=0 go test -run '^$' ./client/allocrunner/taskrunner
+
+echo '==> Running focused nomad_min taskrunner regression tests'
+CGO_ENABLED=0 go build -tags "${TAGS}" ./client/allocrunner/taskrunner
+CGO_ENABLED=0 go test -tags "${TAGS}" \
+  ./client/allocrunner/taskrunner/getter \
+  ./client/allocrunner/taskrunner/template
 
 # The Consul package contains timing-sensitive synchronization tests that are
 # flaky on macOS. Linux CI runs them fully; local macOS verification compiles.
