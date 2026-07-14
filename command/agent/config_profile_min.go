@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/hashicorp/nomad/helper/pointer"
 	structconfig "github.com/hashicorp/nomad/nomad/structs/config"
 )
 
@@ -23,12 +22,12 @@ func validateBuildProfileConfig(config *Config) error {
 	// settings explicitly as false. Treat both forms as the minimal baseline;
 	// all other Consul connection and identity configuration remains rejected.
 	consulCopy := consul.Copy()
-	consulCopy.AutoAdvertise = pointer.Of(false)
-	consulCopy.ServerAutoJoin = pointer.Of(false)
-	consulCopy.ClientAutoJoin = pointer.Of(false)
-	wantConsul.AutoAdvertise = pointer.Of(false)
-	wantConsul.ServerAutoJoin = pointer.Of(false)
-	wantConsul.ClientAutoJoin = pointer.Of(false)
+	consulCopy.AutoAdvertise = new(false)
+	consulCopy.ServerAutoJoin = new(false)
+	consulCopy.ClientAutoJoin = new(false)
+	wantConsul.AutoAdvertise = new(false)
+	wantConsul.ServerAutoJoin = new(false)
+	wantConsul.ClientAutoJoin = new(false)
 	if !reflect.DeepEqual(consulCopy, wantConsul) {
 		return fmt.Errorf("nomad_min: unsupported feature consul configuration")
 	}
@@ -37,9 +36,9 @@ func validateBuildProfileConfig(config *Config) error {
 		return fmt.Errorf("nomad_min: unsupported feature vault configuration")
 	}
 	vaultCopy := config.Vaults[0].Copy()
-	vaultCopy.Enabled = pointer.Of(false)
+	vaultCopy.Enabled = new(false)
 	wantVault := structconfig.DefaultVaultConfig()
-	wantVault.Enabled = pointer.Of(false)
+	wantVault.Enabled = new(false)
 	if !reflect.DeepEqual(vaultCopy, wantVault) {
 		return fmt.Errorf("nomad_min: unsupported feature vault configuration")
 	}
@@ -47,9 +46,9 @@ func validateBuildProfileConfig(config *Config) error {
 	// Nomad's upstream defaults opt into Consul discovery and registration.
 	// The minimal profile changes those implicit defaults before any clients or
 	// background loops are constructed.
-	consul.AutoAdvertise = pointer.Of(false)
-	consul.ServerAutoJoin = pointer.Of(false)
-	consul.ClientAutoJoin = pointer.Of(false)
-	config.Vaults[0].Enabled = pointer.Of(false)
+	consul.AutoAdvertise = new(false)
+	consul.ServerAutoJoin = new(false)
+	consul.ClientAutoJoin = new(false)
+	config.Vaults[0].Enabled = new(false)
 	return nil
 }
