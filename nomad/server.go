@@ -542,23 +542,7 @@ func NewServer(config *Config, consulCatalog consul.CatalogAPI, consulConfigFunc
 	// start the RPC listener for the server
 	s.startRPCListener()
 
-	// Emit metrics for the eval broker
-	go evalBroker.EmitStats(time.Second, s.shutdownCh)
-
-	// Emit metrics for the plan queue
-	go s.planQueue.EmitStats(time.Second, s.shutdownCh)
-
-	// Emit metrics for the planner's bad node tracker.
-	go s.planner.badNodeTracker.EmitStats(time.Second, s.shutdownCh)
-
-	// Emit metrics for the blocked eval tracker.
-	go s.blockedEvals.EmitStats(time.Second, s.shutdownCh)
-
-	// Emit metrics
-	go s.heartbeatStats()
-
-	// Emit raft and state store metrics
-	go s.EmitRaftStats(10*time.Second, s.shutdownCh)
+	s.startRuntimeMetrics(evalBroker)
 
 	// Start enterprise background workers
 	s.startEnterpriseBackground()
@@ -1276,8 +1260,7 @@ func (s *Server) setupRaft() error {
 			store = boltStore
 			s.logger.Info("setting up raft bolt store", "no_freelist_sync", noFreelistSync)
 
-			// Start publishing bboltdb metrics
-			go boltStore.RunMetrics(s.shutdownCtx, 0)
+			s.startRaftStoreMetrics(boltStore)
 
 		default:
 			return fmt.Errorf("unsupported raft log store backend: %q", backend)
