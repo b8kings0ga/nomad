@@ -508,7 +508,7 @@ func (s *HTTPServer) registerHandlers(enableDebug bool) {
 
 	s.mux.HandleFunc("/v1/operator/scheduler/configuration", s.wrap(s.OperatorSchedulerConfiguration))
 
-	s.mux.HandleFunc("/v1/event/stream", s.wrap(s.EventStream))
+	registerEventEndpoint(s)
 
 	s.mux.Handle("/v1/vars", wrapCORS(s.wrap(s.VariablesListRequest)))
 	s.mux.Handle("/v1/var/", wrapCORSWithAllowedMethods(s.wrap(s.VariableSpecificRequest), "HEAD", "GET", "PUT", "DELETE"))

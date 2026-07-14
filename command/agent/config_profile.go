@@ -5,4 +5,5 @@
 
 package agent
 
+func applyBuildProfileDefaults(*Config)        {}
 func validateBuildProfileConfig(*Config) error { return nil }

@@ -1928,6 +1928,7 @@ func DefaultConfig() *Config {
 		Reporting:          config.DefaultReporting(),
 		KEKProviders:       []*structs.KEKProviderConfig{},
 	}
+	applyBuildProfileDefaults(cfg)
 
 	return cfg
 }

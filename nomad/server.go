@@ -1062,10 +1062,7 @@ func (s *Server) setupStreamingEndpoints(server *rpc.Server) {
 	agentEndpoint := NewAgentEndpoint(s)
 	agentEndpoint.register()
 
-	// Event is a streaming-only endpoint so we don't want to register it as a
-	// normal RPC
-	eventEndpoint := NewEventEndpoint(s)
-	eventEndpoint.register()
+	registerEventStreamingEndpoint(s)
 
 	// Operator takes a RPC context but also has a streaming RPC that needs to
 	// be registered
