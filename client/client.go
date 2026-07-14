@@ -3149,16 +3149,8 @@ func (c *Client) emitStats() {
 		config := c.GetConfig()
 		select {
 		case <-next.C:
-			err := c.hostStatsCollector.Collect()
-			next.Reset(config.StatsCollectionInterval)
-			if err != nil {
-				c.logger.Warn("error fetching host resource usage stats", "error", err)
-			} else if config.PublishNodeMetrics {
-				// Publish Node metrics if operator has opted in
-				c.emitHostStats()
-			}
-
-			c.emitClientMetrics()
+			c.collectRuntimeStats(config.PublishNodeMetrics)
+			next.Reset(runtimeStatsInterval(config.StatsCollectionInterval))
 		case <-c.shutdownCh:
 			return
 		}
