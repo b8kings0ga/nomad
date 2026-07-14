@@ -34,9 +34,10 @@ CGO_ENABLED=0 go test -tags "${TAGS}" \
   ./client/allocrunner/taskrunner/getter \
   ./client/allocrunner/taskrunner/template
 
-# The Consul package contains timing-sensitive synchronization tests that are
-# flaky on macOS. Linux CI runs them fully; local macOS verification compiles.
-if [[ "$(go env GOOS)" == "linux" ]]; then
+# The integration tests require a Consul executable and are timing-sensitive
+# on macOS. Run them only in environments that deliberately provide Consul;
+# otherwise retain the ordinary-build compile regression.
+if [[ "$(go env GOOS)" == "linux" ]] && command -v consul >/dev/null 2>&1; then
   CGO_ENABLED=0 go test ./command/agent/consul
 else
   CGO_ENABLED=0 go test -run '^$' ./command/agent/consul
