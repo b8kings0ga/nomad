@@ -1,4 +1,4 @@
-name: nomad_min upstream sync
+name: nomad_min weekly release
 
 on:
   workflow_dispatch:
@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
+
+concurrency:
+  group: nomad-min-release
+  cancel-in-progress: false
 
 jobs:
   sync-build-package:
@@ -45,23 +49,49 @@ jobs:
           scripts/nomad-min/sync-upstream.sh "${args[@]}" | tee "${RUNNER_TEMP}/sync.env"
           grep '^NOMAD_MIN_SYNC_' "${RUNNER_TEMP}/sync.env" >>"${GITHUB_OUTPUT}"
 
+      - name: Resolve release context
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGED: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED }}
+          SYNC_TARGET: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_TARGET }}
+          SYNC_WORKTREE: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_WORKTREE }}
+        run: |
+          release_tag="nomad-min-${SYNC_TARGET}"
+          if [[ "${CHANGED}" == "true" ]]; then
+            source_dir="${SYNC_WORKTREE}"
+          else
+            source_dir="${GITHUB_WORKSPACE}"
+          fi
+          if gh release view "${release_tag}" >/dev/null 2>&1; then
+            should_release=false
+          else
+            should_release=true
+          fi
+          {
+            echo "release_tag=${release_tag}"
+            echo "source_dir=${source_dir}"
+            echo "should_release=${should_release}"
+          } >>"${GITHUB_OUTPUT}"
+
       - name: Verify synchronized source
-        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true'
-        working-directory: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_WORKTREE }}
+        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true' || steps.release.outputs.should_release == 'true'
+        working-directory: ${{ steps.release.outputs.source_dir }}
         run: scripts/nomad-min/verify.sh
 
       - name: Package release artifacts
-        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true'
-        working-directory: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_WORKTREE }}
+        if: steps.release.outputs.should_release == 'true'
+        working-directory: ${{ steps.release.outputs.source_dir }}
         env:
           OUT_DIR: ${{ runner.temp }}/nomad-min-release
         run: scripts/nomad-min/package.sh
 
       - uses: actions/upload-artifact@v4
-        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true'
+        if: steps.release.outputs.should_release == 'true'
         with:
           name: nomad-min-${{ steps.sync.outputs.NOMAD_MIN_SYNC_TARGET }}
           path: ${{ runner.temp }}/nomad-min-release/
+          if-no-files-found: error
 
       - name: Push synchronization branch
         if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true'
@@ -81,6 +111,11 @@ jobs:
             git -C "${WORKTREE}" push --set-upstream origin "${branch}"
           fi
           echo "SYNC_BRANCH=${branch}" >>"${GITHUB_ENV}"
+          echo "RELEASE_TARGET=${branch}" >>"${GITHUB_ENV}"
+
+      - name: Use current commit as release target
+        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED != 'true'
+        run: echo "RELEASE_TARGET=${GITHUB_SHA}" >>"${GITHUB_ENV}"
 
       - name: Open or update pull request
         if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true'
@@ -96,3 +131,30 @@ jobs:
               --title "build: sync nomad_min to ${TARGET}" \
               --body "Automated replay, verification, dual-architecture build, and packaging of the nomad_min patch stack."
           fi
+
+      - name: Publish immutable GitHub Release
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+          TARGET: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_TARGET }}
+          SOURCE_DIR: ${{ steps.release.outputs.source_dir }}
+        run: |
+          patch_commit="$(git -C "${SOURCE_DIR}" rev-parse --short=12 HEAD)"
+          upstream_commit="$(cut -c1-12 "${SOURCE_DIR}/nomad-min/UPSTREAM_COMMIT")"
+          cat >"${RUNNER_TEMP}/release-notes.md" <<EOF
+          Minimal Nomad agent build for Mimir, based on HashiCorp Nomad ${TARGET}.
+
+          - Build profile: \`nomad_min\`
+          - Architectures: Linux amd64 and arm64
+          - Upstream commit: \`${upstream_commit}\`
+          - Patch commit: \`${patch_commit}\`
+          - Compression: \`zstd --ultra -22\`
+
+          Consume \`nomad-min-manifest.tsv\` and verify the adjacent package SHA256 values before rollout.
+          EOF
+          gh release create "${RELEASE_TAG}" \
+            "${RUNNER_TEMP}/nomad-min-release/"* \
+            --target "${RELEASE_TARGET}" \
+            --title "nomad_min ${TARGET}" \
+            --notes-file "${RUNNER_TEMP}/release-notes.md"
