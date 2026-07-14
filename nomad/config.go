@@ -731,6 +731,7 @@ func DefaultConfig() *Config {
 
 	// Default the number of schedulers to match the cores
 	c.NumSchedulers = runtime.NumCPU()
+	applyBuildProfileDefaults(c)
 
 	// Increase our reap interval to 3 days instead of 24h.
 	c.SerfConfig.ReconnectTimeout = 3 * 24 * time.Hour

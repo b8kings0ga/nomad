@@ -62,4 +62,38 @@ profile="$("${host_binary}" version | awk '/^BuildProfile / {print $2}')"
   exit 1
 }
 
+echo '==> Checking removed runtime configuration is rejected'
+cat >"${verify_tmp}/event-stream.hcl" <<EOF
+data_dir = "${verify_tmp}/event-stream-data"
+bind_addr = "127.0.0.1"
+
+ports {
+  http = 17646
+  rpc  = 17647
+  serf = 17648
+}
+
+advertise {
+  http = "127.0.0.1:17646"
+  rpc  = "127.0.0.1:17647"
+  serf = "127.0.0.1:17648"
+}
+
+server {
+  enabled             = true
+  bootstrap_expect    = 1
+  enable_event_broker = true
+  event_buffer_size   = 100
+}
+EOF
+if output="$("${host_binary}" agent -config="${verify_tmp}/event-stream.hcl" 2>&1)"; then
+  echo 'nomad_min accepted the removed event stream configuration' >&2
+  exit 1
+fi
+grep -Fq 'nomad_min: unsupported feature event stream' <<<"${output}" || {
+  printf '%s\n' "${output}" >&2
+  echo 'nomad_min did not report the expected event stream error' >&2
+  exit 1
+}
+
 echo '==> nomad_min verification passed'

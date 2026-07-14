@@ -75,7 +75,9 @@ func (tr *TaskRunner) initHooks() {
 		newDispatchHook(alloc, hookLogger),
 		newVolumeHook(tr, hookLogger),
 		newArtifactHook(tr, tr.getter, hookLogger),
-		newStatsHook(tr, tr.clientConfig.StatsCollectionInterval, tr.clientConfig.PublishAllocationMetrics, hookLogger),
+	}...)
+	tr.runnerHooks = appendStatsHook(tr.runnerHooks, tr, hookLogger)
+	tr.runnerHooks = append(tr.runnerHooks, []interfaces.TaskHook{
 		newDeviceHook(tr.devicemanager, hookLogger),
 		newAPIHook(tr.shutdownCtx, tr.clientConfig.APIListenerRegistrar, hookLogger),
 		newWranglerHook(tr.wranglers, task.Name, alloc.ID, task.UsesCores(), hookLogger),
