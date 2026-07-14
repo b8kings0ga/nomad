@@ -17,7 +17,7 @@ echo '==> Compiling the ordinary build'
 CGO_ENABLED=0 go test -run '^$' .
 
 echo '==> Compiling nomad_min'
-CGO_ENABLED=0 go test -tags "${TAGS}" -run '^$' .
+CGO_ENABLED=0 go test -tags "${TAGS}" -run '^TestMinimal' .
 
 echo '==> Running focused ordinary-build regression tests'
 CGO_ENABLED=0 go test \
@@ -61,6 +61,26 @@ profile="$("${host_binary}" version | awk '/^BuildProfile / {print $2}')"
   echo "unexpected BuildProfile: ${profile:-missing}" >&2
   exit 1
 }
+
+echo '==> Checking the minimal runtime command surface'
+if output="$("${host_binary}" job status 2>&1)"; then
+  echo 'nomad_min accepted an operator CLI command' >&2
+  exit 1
+fi
+grep -Fq 'nomad_min: unsupported command job' <<<"${output}" || {
+  printf '%s\n' "${output}" >&2
+  echo 'nomad_min did not report the expected command error' >&2
+  exit 1
+}
+for text in \
+  'Create or update an ACL policy' \
+  'Interact with deployments' \
+  'Dispatch an instance of a parameterized job'; do
+  if strings "${host_binary}" | grep -F "${text}" >/dev/null; then
+    echo "nomad_min contains removed operator CLI text: ${text}" >&2
+    exit 1
+  fi
+done
 
 echo '==> Checking removed runtime configuration is rejected'
 cat >"${verify_tmp}/event-stream.hcl" <<EOF
