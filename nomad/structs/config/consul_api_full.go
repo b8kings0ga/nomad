@@ -13,7 +13,6 @@ import (
 
 	consul "github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-secure-stdlib/listenerutil"
-	"github.com/hashicorp/nomad/helper/pointer"
 	"github.com/hashicorp/nomad/nomad/structs"
 )
 
@@ -27,11 +26,11 @@ func defaultConsulConfig(addr string, ssl, verify bool, caFile, namespace, token
 		Name: "default", ServerServiceName: "nomad", ServerHTTPCheckName: "Nomad Server HTTP Check",
 		ServerSerfCheckName: "Nomad Server Serf Check", ServerRPCCheckName: "Nomad Server RPC Check",
 		ClientServiceName: "nomad-client", ClientHTTPCheckName: "Nomad Client HTTP Check",
-		AutoAdvertise: pointer.Of(true), ChecksUseAdvertise: pointer.Of(false),
-		ServerAutoJoin: pointer.Of(true), ClientAutoJoin: pointer.Of(true), Timeout: 5 * time.Second,
+		AutoAdvertise: new(true), ChecksUseAdvertise: new(false),
+		ServerAutoJoin: new(true), ClientAutoJoin: new(true), Timeout: 5 * time.Second,
 		ServiceIdentityAuthMethod: structs.ConsulWorkloadsDefaultAuthMethodName,
 		TaskIdentityAuthMethod:    structs.ConsulWorkloadsDefaultAuthMethodName,
-		Addr:                      addr, EnableSSL: pointer.Of(ssl), VerifySSL: pointer.Of(verify), CAFile: caFile, Namespace: namespace, Token: token,
+		Addr:                      addr, EnableSSL: new(ssl), VerifySSL: new(verify), CAFile: caFile, Namespace: namespace, Token: token,
 	}
 }
 

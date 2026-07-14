@@ -9,7 +9,6 @@ import (
 	"errors"
 
 	ctconfig "github.com/hashicorp/consul-template/config"
-	"github.com/hashicorp/nomad/helper/pointer"
 )
 
 // ToConsulTemplate converts a client WaitConfig instance to a consul-template WaitConfig.
@@ -21,7 +20,7 @@ func (wc *WaitConfig) ToConsulTemplate() (*ctconfig.WaitConfig, error) {
 		return nil, err
 	}
 	enabled := wc.Min == nil || *wc.Min != 0 || wc.Max == nil || *wc.Max != 0
-	result := &ctconfig.WaitConfig{Enabled: pointer.Of(enabled), Min: wc.Min, Max: wc.Max}
+	result := &ctconfig.WaitConfig{Enabled: new(enabled), Min: wc.Min, Max: wc.Max}
 	return result, nil
 }
 
@@ -30,7 +29,7 @@ func (rc *RetryConfig) ToConsulTemplate() (*ctconfig.RetryConfig, error) {
 	if err := rc.Validate(); err != nil {
 		return nil, err
 	}
-	result := &ctconfig.RetryConfig{Enabled: pointer.Of(true), Attempts: rc.Attempts, Backoff: rc.Backoff}
+	result := &ctconfig.RetryConfig{Enabled: new(true), Attempts: rc.Attempts, Backoff: rc.Backoff}
 	if rc.MaxBackoff != nil {
 		result.MaxBackoff = rc.MaxBackoff
 	}

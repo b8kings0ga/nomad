@@ -4,7 +4,6 @@
 package agent
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"io"
