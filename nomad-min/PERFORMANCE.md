@@ -60,3 +60,39 @@ Both isolated servers elected themselves leader. The candidate returned HTTP
 404 for `/v1/event/stream`, and explicitly enabling the removed broker failed
 with `nomad_min: unsupported feature event stream`. The scheduler count remains
 operator-configurable for installations that need more evaluation throughput.
+
+## 2026-07-14 agent-only runtime entrypoint
+
+The `nomad_min` executable now exposes only `nomad agent` and `nomad version`.
+Executor, logmon, Docker logger, artifact getter, and template renderer
+subprocess modes remain linked because the agent invokes them internally. The
+ordinary build retains the complete operator CLI.
+
+| Architecture | Previous binary | Agent-only binary | Reduction | zstd -22 reduction |
+| --- | ---: | ---: | ---: | ---: |
+| linux/amd64 | 47,157,410 B | 43,249,826 B | 3,907,584 B (8.29%) | 937,256 B (7.18%) |
+| linux/arm64 | 43,778,210 B | 40,173,730 B | 3,604,480 B (8.23%) | 817,404 B (7.10%) |
+
+The compressed comparison uses the stripped executable directly with
+`zstd --ultra -22 -T1`; release archives also contain the small version marker
+and tar metadata.
+
+Concurrent idle Linux arm64 A/B runs did not demonstrate a runtime memory or
+CPU improvement:
+
+| Build | Run | CPU | RSS avg | PSS avg | Threads at end |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| complete minimal CLI | 1 | 0.430% | 46,933 KiB | 46,929 KiB | 14 |
+| complete minimal CLI | 2 | 0.495% | 47,496 KiB | 47,492 KiB | 14 |
+| agent-only | 1 | 0.430% | 47,920 KiB | 47,916 KiB | 15 |
+| agent-only | 2 | 0.528% | 47,997 KiB | 47,993 KiB | 15 |
+
+The agent-only mean RSS was 744 KiB higher in this sample. Treat this change as
+a binary-size, attack-surface, and startup-logic reduction, not as a proven
+runtime memory optimization.
+
+The agent-only binary elected a leader, registered its client, and completed a
+batch allocation using a `template` stanza plus `raw_exec`. A complete external
+Nomad CLI remained able to operate the agent over HTTP, while invoking
+`nomad job` on the runtime executable failed explicitly with
+`nomad_min: unsupported command job`.
