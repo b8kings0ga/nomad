@@ -72,7 +72,14 @@ jobs:
           safe_target="${TARGET//[^A-Za-z0-9._-]/-}"
           branch="automation/nomad-min-${safe_target}"
           git -C "${WORKTREE}" switch -c "${branch}"
-          git -C "${WORKTREE}" push --force-with-lease origin "${branch}"
+          if git ls-remote --exit-code --heads origin "refs/heads/${branch}" >/dev/null; then
+            git fetch origin "refs/heads/${branch}:refs/remotes/origin/${branch}"
+            expected="$(git rev-parse "refs/remotes/origin/${branch}")"
+            git -C "${WORKTREE}" push \
+              --force-with-lease="refs/heads/${branch}:${expected}" origin "${branch}"
+          else
+            git -C "${WORKTREE}" push --set-upstream origin "${branch}"
+          fi
           echo "SYNC_BRANCH=${branch}" >>"${GITHUB_ENV}"
 
       - name: Open or update pull request
