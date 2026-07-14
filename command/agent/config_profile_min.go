@@ -50,5 +50,6 @@ func validateBuildProfileConfig(config *Config) error {
 	consul.ServerAutoJoin = new(false)
 	consul.ClientAutoJoin = new(false)
 	config.Vaults[0].Enabled = new(false)
+	config.Telemetry.DisableAllocationHookMetrics = new(true)
 	return nil
 }

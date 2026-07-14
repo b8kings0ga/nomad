@@ -19,6 +19,9 @@ func TestMinimalConfigDisablesImplicitIntegrations(t *testing.T) {
 	if config.Vaults[0].Enabled == nil || *config.Vaults[0].Enabled {
 		t.Fatal("implicit vault integration remains enabled")
 	}
+	if config.Telemetry.DisableAllocationHookMetrics == nil || !*config.Telemetry.DisableAllocationHookMetrics {
+		t.Fatal("allocation hook metrics remain enabled")
+	}
 }
 
 func TestMinimalConfigRejectsIntegrationConfig(t *testing.T) {
