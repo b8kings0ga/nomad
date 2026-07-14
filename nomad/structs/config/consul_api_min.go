@@ -8,7 +8,6 @@ package config
 import (
 	"time"
 
-	"github.com/hashicorp/nomad/helper/pointer"
 	"github.com/hashicorp/nomad/nomad/structs"
 )
 
@@ -17,10 +16,10 @@ func DefaultConsulConfig() *ConsulConfig {
 		Name: "default", ServerServiceName: "nomad", ServerHTTPCheckName: "Nomad Server HTTP Check",
 		ServerSerfCheckName: "Nomad Server Serf Check", ServerRPCCheckName: "Nomad Server RPC Check",
 		ClientServiceName: "nomad-client", ClientHTTPCheckName: "Nomad Client HTTP Check",
-		AutoAdvertise: pointer.Of(false), ChecksUseAdvertise: pointer.Of(false),
-		ServerAutoJoin: pointer.Of(false), ClientAutoJoin: pointer.Of(false), Timeout: 5 * time.Second,
+		AutoAdvertise: new(false), ChecksUseAdvertise: new(false),
+		ServerAutoJoin: new(false), ClientAutoJoin: new(false), Timeout: 5 * time.Second,
 		ServiceIdentityAuthMethod: structs.ConsulWorkloadsDefaultAuthMethodName,
 		TaskIdentityAuthMethod:    structs.ConsulWorkloadsDefaultAuthMethodName,
-		Addr:                      "127.0.0.1:8500", EnableSSL: pointer.Of(false), VerifySSL: pointer.Of(true),
+		Addr:                      "127.0.0.1:8500", EnableSSL: new(false), VerifySSL: new(true),
 	}
 }

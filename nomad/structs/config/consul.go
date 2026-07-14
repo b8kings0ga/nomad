@@ -6,8 +6,6 @@ package config
 import (
 	"slices"
 	"time"
-
-	"github.com/hashicorp/nomad/helper/pointer"
 )
 
 // ConsulConfig contains the configuration information necessary to

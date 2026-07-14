@@ -4,7 +4,6 @@
 package agent
 
 import (
-	"context"
 	"crypto/fips140"
 	"flag"
 	"fmt"
