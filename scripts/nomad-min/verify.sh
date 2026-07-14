@@ -7,6 +7,9 @@ BANNED_RE='github.com/hashicorp/(consul|vault)|github.com/hashicorp/go-(checkpoi
 
 cd "${ROOT_DIR}"
 
+verify_tmp="$(mktemp -d "${TMPDIR:-/tmp}/nomad-min-verify.XXXXXX")"
+trap 'rm -rf "${verify_tmp}"' EXIT
+
 echo '==> Checking patch formatting'
 git diff --check
 
@@ -17,7 +20,8 @@ echo '==> Compiling nomad_min'
 CGO_ENABLED=0 go test -tags "${TAGS}" -run '^$' .
 
 echo '==> Running focused ordinary-build regression tests'
-CGO_ENABLED=0 go test \
+CGO_ENABLED=0 go build -trimpath -o "${verify_tmp}/nomad" .
+PATH="${verify_tmp}:${PATH}" CGO_ENABLED=0 go test \
   ./nomad/structs/config \
   ./client/serviceregistration \
   ./client/consul \
@@ -44,8 +48,7 @@ fi
 echo '==> Building linux/amd64 and linux/arm64 nomad_min binaries'
 make nomad-min
 
-host_binary="$(mktemp "${TMPDIR:-/tmp}/nomad-min-host.XXXXXX")"
-trap 'rm -f "${host_binary}"' EXIT
+host_binary="${verify_tmp}/nomad-min-host"
 CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -tags "${TAGS}" -o "${host_binary}" .
 profile="$("${host_binary}" version | awk '/^BuildProfile / {print $2}')"
 [[ "${profile}" == "nomad_min" ]] || {
