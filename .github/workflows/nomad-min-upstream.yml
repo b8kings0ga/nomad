@@ -1,0 +1,91 @@
+name: nomad_min upstream sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: Upstream stable tag or commit; empty means latest stable tag
+        required: false
+        type: string
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-build-package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure upstream
+        run: git remote add upstream https://github.com/hashicorp/nomad.git
+
+      - name: Configure Git identity
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Install packaging dependency
+        run: sudo apt-get update && sudo apt-get install -y zstd
+
+      - name: Resolve and replay nomad_min patch stack
+        id: sync
+        env:
+          REQUESTED_REF: ${{ inputs.upstream_ref }}
+        run: |
+          args=(--worktree "${RUNNER_TEMP}/nomad-min-sync")
+          if [[ -n "${REQUESTED_REF}" ]]; then
+            args+=(--target "${REQUESTED_REF}")
+          fi
+          scripts/nomad-min/sync-upstream.sh "${args[@]}" | tee "${RUNNER_TEMP}/sync.env"
+          grep '^NOMAD_MIN_SYNC_' "${RUNNER_TEMP}/sync.env" >>"${GITHUB_OUTPUT}"
+
+      - name: Verify synchronized source
+        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true'
+        working-directory: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_WORKTREE }}
+        run: scripts/nomad-min/verify.sh
+
+      - name: Package release artifacts
+        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true'
+        working-directory: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_WORKTREE }}
+        env:
+          OUT_DIR: ${{ runner.temp }}/nomad-min-release
+        run: scripts/nomad-min/package.sh
+
+      - uses: actions/upload-artifact@v4
+        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true'
+        with:
+          name: nomad-min-${{ steps.sync.outputs.NOMAD_MIN_SYNC_TARGET }}
+          path: ${{ runner.temp }}/nomad-min-release/
+
+      - name: Push synchronization branch
+        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true'
+        env:
+          WORKTREE: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_WORKTREE }}
+          TARGET: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_TARGET }}
+        run: |
+          safe_target="${TARGET//[^A-Za-z0-9._-]/-}"
+          branch="automation/nomad-min-${safe_target}"
+          git -C "${WORKTREE}" switch -c "${branch}"
+          git -C "${WORKTREE}" push --force-with-lease origin "${branch}"
+          echo "SYNC_BRANCH=${branch}" >>"${GITHUB_ENV}"
+
+      - name: Open or update pull request
+        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_TARGET }}
+        run: |
+          existing="$(gh pr list --head "${SYNC_BRANCH}" --json number --jq '.[0].number // empty')"
+          if [[ -z "${existing}" ]]; then
+            gh pr create \
+              --base "${GITHUB_REF_NAME}" \
+              --head "${SYNC_BRANCH}" \
+              --title "build: sync nomad_min to ${TARGET}" \
+              --body "Automated replay, verification, dual-architecture build, and packaging of the nomad_min patch stack."
+          fi
