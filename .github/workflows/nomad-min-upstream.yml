@@ -59,11 +59,16 @@ jobs:
           SYNC_TARGET: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_TARGET }}
           SYNC_WORKTREE: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_WORKTREE }}
         run: |
-          release_tag="nomad-min-${SYNC_TARGET}"
           if [[ "${CHANGED}" == "true" ]]; then
             source_dir="${SYNC_WORKTREE}"
           else
             source_dir="${GITHUB_WORKSPACE}"
+          fi
+          base_release_tag="nomad-min-${SYNC_TARGET}"
+          patch_commit="$(git -C "${source_dir}" rev-parse --short=12 HEAD)"
+          release_tag="${base_release_tag}"
+          if gh release view "${base_release_tag}" >/dev/null 2>&1; then
+            release_tag="${base_release_tag}-r${patch_commit}"
           fi
           if gh release view "${release_tag}" >/dev/null 2>&1; then
             should_release=false
