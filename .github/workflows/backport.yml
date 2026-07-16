@@ -9,7 +9,7 @@ on:
 
 jobs:
   backport:
-    if: github.event.pull_request.merged
+    if: github.repository == 'hashicorp/nomad' && github.event.pull_request.merged
     runs-on: ubuntu-22.04
     container: hashicorpdev/backport-assistant:v0.6.3
     steps:
@@ -31,7 +31,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.ELEVATED_GITHUB_TOKEN }}
           ENABLE_VERSION_MANIFESTS: true
   backport-ent:
-    if: github.event.pull_request.merged && contains(join(github.event.pull_request.labels.*.name), 'backport/ent')
+    if: github.repository == 'hashicorp/nomad' && github.event.pull_request.merged && contains(join(github.event.pull_request.labels.*.name), 'backport/ent')
     runs-on: ubuntu-22.04
     steps:
       - name: Trigger backport for Enterprise
