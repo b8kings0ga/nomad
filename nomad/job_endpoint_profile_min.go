@@ -49,7 +49,7 @@ func (profileJobHook) Mutate(job *structs.Job) (*structs.Job, []error, error) {
 			if task.CSIPluginConfig != nil {
 				return nil, nil, unsupportedJobFeature("csi")
 			}
-			if task.Driver != "docker" && task.Driver != "raw_exec" && task.Driver != "exec2" {
+			if task.Driver != "docker" && task.Driver != "raw_exec" && task.Driver != "mimc" {
 				return nil, nil, unsupportedJobFeature("driver " + task.Driver)
 			}
 			if err := validateMinimalServices(task.Services); err != nil {
