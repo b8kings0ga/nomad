@@ -36,7 +36,7 @@ func TestProfileJobHookMinimal(t *testing.T) {
 		NodePool:  structs.NodePoolDefault,
 		TaskGroups: []*structs.TaskGroup{{
 			Services: []*structs.Service{{Provider: structs.ServiceProviderNomad}},
-			Tasks:    []*structs.Task{{Driver: "docker"}, {Driver: "raw_exec"}, {Driver: "exec2"}},
+			Tasks:    []*structs.Task{{Driver: "docker"}, {Driver: "raw_exec"}, {Driver: "mimc"}},
 		}},
 	}
 	if _, _, err := (profileJobHook{}).Mutate(valid); err != nil {
