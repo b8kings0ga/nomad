@@ -62,6 +62,7 @@ func (b *driverPluginServer) Capabilities(ctx context.Context, req *proto.Capabi
 			Exec:                  caps.Exec,
 			MustCreateNetwork:     caps.MustInitiateNetwork,
 			NetworkIsolationModes: []proto.NetworkIsolationSpec_NetworkIsolationMode{},
+			DisableLogCollection:  caps.DisableLogCollection,
 			DynamicWorkloadUsers:  caps.DynamicWorkloadUsers,
 		},
 	}
