@@ -620,12 +620,11 @@ func (e *Encrypter) generateCipher(rootKey *structs.UnwrappedRootKey) (*cipherSe
 
 	switch rootKey.Meta.Algorithm {
 	case structs.EncryptionAlgorithmAES256GCM:
-		wrapper = aead.NewWrapper()
-		_, err := wrapper.SetConfig(context.Background(),
-			aead.WithAeadType(kms.AeadTypeAesGcm),
-			aead.WithHashType(kms.HashTypeSha256),
-			aead.WithKey(rootKey.Key),
-			kms.WithKeyId(rootKey.Meta.KeyID),
+		var err error
+		wrapper, err = e.newKMSWrapper(
+			&structs.KEKProviderConfig{Provider: structs.KEKProviderAEAD},
+			rootKey.Meta.KeyID,
+			rootKey.Key,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("could not configure cipher: %w", err)
