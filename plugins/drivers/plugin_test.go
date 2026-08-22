@@ -220,7 +220,12 @@ func TestDriverPlugin_Capabilities(t *testing.T) {
 	ci.Parallel(t)
 
 	t.Run("ok", func(t *testing.T) {
-		caps := &Capabilities{SendSignals: true, Exec: true, FSIsolation: "none"}
+		caps := &Capabilities{
+			SendSignals:          true,
+			Exec:                 true,
+			FSIsolation:          "none",
+			DisableLogCollection: true,
+		}
 		mock := &MockDriverPlugin{
 			CapabilitiesFn: func() (*Capabilities, error) {
 				return caps, nil
