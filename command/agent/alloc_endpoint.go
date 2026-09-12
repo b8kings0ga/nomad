@@ -250,6 +250,24 @@ func (s *HTTPServer) ClientAllocRequest(resp http.ResponseWriter, req *http.Requ
 	return nil, CodedError(404, resourceNotFoundErr)
 }
 
+// ClientServicesRequest returns the service registrations materialized by the
+// local Nomad client. The endpoint is loopback-only because it exposes the
+// allocation addresses required by a node-local service gateway.
+func (s *HTTPServer) ClientServicesRequest(_ http.ResponseWriter, req *http.Request) (interface{}, error) {
+	if req.Method != http.MethodGet {
+		return nil, CodedError(http.StatusMethodNotAllowed, ErrInvalidMethod)
+	}
+	host, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil || !net.ParseIP(host).IsLoopback() {
+		return nil, CodedError(http.StatusForbidden, "client services endpoint is loopback-only")
+	}
+	client := s.agent.Client()
+	if client == nil {
+		return nil, CodedError(http.StatusServiceUnavailable, "Nomad client is not running")
+	}
+	return client.LocalServiceRegistrations(), nil
+}
+
 func (s *HTTPServer) ClientGCRequest(resp http.ResponseWriter, req *http.Request) (interface{}, error) {
 
 	// Build the request and get the requested Node ID

@@ -207,8 +207,21 @@ func (m *Manager) SetServers(servers Servers) bool {
 
 	m.logger.Debug("new server list", "new_servers", servers, "old_servers", m.servers)
 
-	// Randomize the incoming servers
+	// Keep the current preferred server when discovery adds another address.
+	// In particular, a heartbeat must not put an unreachable advertised address
+	// back ahead of the working bootstrap address selected during recovery.
+	// Periodic rebalance still probes and rotates healthy servers normally.
+	var preferred *Server
+	if len(m.servers) > 0 {
+		preferred = m.servers[0]
+	}
 	servers.shuffle()
+	for i, server := range servers {
+		if preferred != nil && server.Equal(preferred) {
+			servers[0], servers[i] = servers[i], servers[0]
+			break
+		}
+	}
 	m.servers = servers
 
 	return !equal

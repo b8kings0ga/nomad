@@ -138,6 +138,10 @@ func (n NoopDB) PutNodeMeta(map[string]*string) error {
 func (n NoopDB) GetNodeMeta() (map[string]*string, error) {
 	return nil, nil
 }
+func (n NoopDB) PutMimirCapability(*structs.MimirNodeCapability) error     { return nil }
+func (n NoopDB) GetMimirCapability() (*structs.MimirNodeCapability, error) { return nil, nil }
+func (n NoopDB) PutMimirHealth(*structs.MimirNodeHealth) error             { return nil }
+func (n NoopDB) GetMimirHealth() (*structs.MimirNodeHealth, error)         { return nil, nil }
 
 func (n NoopDB) PutNodeRegistration(reg *cstructs.NodeRegistration) error {
 	return nil

@@ -60,7 +60,9 @@ type MemDB struct {
 	dynamicManagerPs *dynamicplugins.RegistryState
 
 	// key -> value or nil
-	nodeMeta map[string]*string
+	nodeMeta        map[string]*string
+	mimirCapability *structs.MimirNodeCapability
+	mimirHealth     *structs.MimirNodeHealth
 
 	nodeRegistration *cstructs.NodeRegistration
 
@@ -365,6 +367,29 @@ func (m *MemDB) GetNodeMeta() (map[string]*string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.nodeMeta, nil
+}
+
+func (m *MemDB) PutMimirCapability(v *structs.MimirNodeCapability) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.mimirCapability = v.Copy()
+	return nil
+}
+func (m *MemDB) GetMimirCapability() (*structs.MimirNodeCapability, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.mimirCapability.Copy(), nil
+}
+func (m *MemDB) PutMimirHealth(v *structs.MimirNodeHealth) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.mimirHealth = v.Copy()
+	return nil
+}
+func (m *MemDB) GetMimirHealth() (*structs.MimirNodeHealth, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.mimirHealth.Copy(), nil
 }
 
 func (m *MemDB) PutNodeRegistration(reg *cstructs.NodeRegistration) error {

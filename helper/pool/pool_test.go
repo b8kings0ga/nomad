@@ -4,6 +4,7 @@
 package pool
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -88,4 +89,19 @@ func TestConnPool_ConnListener(t *testing.T) {
 
 	_, ok := <-c
 	must.False(t, ok)
+}
+
+func TestRPCConnectionFailureMarksRequestNotSent(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := listener.Addr()
+	listener.Close()
+	p := newTestPool(t)
+	defer p.Shutdown()
+	err = p.RPC("global", addr, "ServiceRegistration.Upsert", nil, nil)
+	if !errors.Is(err, ErrRPCNotSent) {
+		t.Fatalf("missing unsent proof: %v", err)
+	}
 }

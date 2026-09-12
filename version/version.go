@@ -19,7 +19,7 @@ var (
 	GitDescribe string
 
 	// The main version number that is being run at the moment.
-	Version = "2.0.4"
+	Version = "2.0.6"
 
 	// A pre-release marker for the version. If this is "" (empty string)
 	// then it means that it is a final release. Otherwise, this is a pre-release
@@ -27,7 +27,7 @@ var (
 	VersionPrerelease = ""
 
 	// VersionMetadata is metadata further describing the build type.
-	VersionMetadata = ""
+	VersionMetadata = "mimc.20260912"
 )
 
 // VersionInfo

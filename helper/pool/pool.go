@@ -5,6 +5,7 @@ package pool
 
 import (
 	"container/list"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -21,6 +22,10 @@ import (
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/yamux"
 )
+
+// ErrRPCNotSent identifies failures before the RPC method or arguments were sent.
+// Callers may retry these failures without replaying an ambiguous mutation.
+var ErrRPCNotSent = errors.New("RPC request was not sent")
 
 // defaultDialTimeout is the fallback timeout used when a ConnPool is
 // constructed without an explicit dial timeout.
@@ -514,7 +519,7 @@ func (p *ConnPool) RPC(region string, addr net.Addr, method string, args interfa
 	// Get a usable client
 	conn, sc, err := p.getRPCClient(region, addr)
 	if err != nil {
-		return fmt.Errorf("rpc error: %w", err)
+		return fmt.Errorf("rpc error: %w: %w", ErrRPCNotSent, err)
 	}
 	defer conn.releaseUse()
 

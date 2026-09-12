@@ -1054,6 +1054,71 @@ func (c *Client) Stats() map[string]map[string]string {
 	return stats
 }
 
+// LocalServiceRegistration is a service registration and health snapshot
+// owned by this Nomad client. It is intentionally independent of the Nomad
+// server state store so node-local gateways can authorize already-running
+// allocations during a control-plane interruption.
+type LocalServiceRegistration struct {
+	ID          string   `json:"ID"`
+	ServiceName string   `json:"ServiceName"`
+	NodeID      string   `json:"NodeID"`
+	NodeName    string   `json:"NodeName"`
+	JobID       string   `json:"JobID"`
+	AllocID     string   `json:"AllocID"`
+	Namespace   string   `json:"Namespace"`
+	Datacenter  string   `json:"Datacenter"`
+	Tags        []string `json:"Tags"`
+	Address     string   `json:"Address"`
+	Port        int      `json:"Port"`
+	Passing     bool     `json:"Passing"`
+}
+
+type localRegistrationReader interface {
+	LocalRegistrations() []*structs.ServiceRegistration
+}
+
+// LocalServiceRegistrations returns only registrations whose allocation is
+// still owned by this client. Health is evaluated from the client check store;
+// no client-to-server RPC is performed.
+func (c *Client) LocalServiceRegistrations() []LocalServiceRegistration {
+	reader, ok := c.nomadService.(localRegistrationReader)
+	if !ok {
+		return nil
+	}
+	runners := c.getAllocRunners()
+	node := c.Node()
+	registrations := reader.LocalRegistrations()
+	out := make([]LocalServiceRegistration, 0, len(registrations))
+	for _, registration := range registrations {
+		if registration == nil {
+			continue
+		}
+		runner, ok := runners[registration.AllocID]
+		if !ok || runner.IsDestroyed() {
+			continue
+		}
+		allocation := runner.Alloc()
+		if allocation == nil || allocation.NodeID != c.NodeID() || allocation.DesiredStatus != structs.AllocDesiredStatusRun {
+			continue
+		}
+		passing := true
+		for _, check := range c.checkStore.List(registration.AllocID) {
+			if check != nil && strings.EqualFold(strings.TrimSpace(check.Service), strings.TrimSpace(registration.ServiceName)) && check.Status != structs.CheckSuccess {
+				passing = false
+				break
+			}
+		}
+		out = append(out, LocalServiceRegistration{
+			ID: registration.ID, ServiceName: registration.ServiceName,
+			NodeID: registration.NodeID, NodeName: node.Name, JobID: registration.JobID,
+			AllocID: registration.AllocID, Namespace: registration.Namespace,
+			Datacenter: registration.Datacenter, Tags: append([]string(nil), registration.Tags...),
+			Address: registration.Address, Port: registration.Port, Passing: passing,
+		})
+	}
+	return out
+}
+
 // GetAlloc returns an allocation or an error.
 func (c *Client) GetAlloc(allocID string) (*structs.Allocation, error) {
 	ar, err := c.getAllocRunner(allocID)
@@ -1274,6 +1339,17 @@ func (c *Client) GetServers() []string {
 // server is resolvable no error is returned.
 func (c *Client) SetServers(in []string) (int, error) {
 	return c.setServersImpl(in, false)
+}
+
+// SetBootstrapServers retains operator-configured discovery addresses as
+// recovery candidates. A transiently unreachable address must not disappear
+// permanently after the first successful join or a heartbeat advertisement.
+func (c *Client) SetBootstrapServers(in []string) (int, error) {
+	n, err := c.setServersImpl(in, true)
+	if err == nil {
+		c.UpdateConfig(func(cfg *config.Config) { cfg.Servers = append([]string(nil), in...) })
+	}
+	return n, err
 }
 
 // setServersImpl sets a new list of nomad servers to connect to. If force is
@@ -1737,6 +1813,14 @@ func (c *Client) setupNode() error {
 	// above
 	if err := c.stateDB.PutNodeMeta(c.metaDynamic); err != nil {
 		return fmt.Errorf("error syncing dynamic node metadata: %w", err)
+	}
+	node.MimirCapability, err = c.stateDB.GetMimirCapability()
+	if err != nil {
+		return fmt.Errorf("error reading Mimir capability: %w", err)
+	}
+	node.MimirHealth, err = c.stateDB.GetMimirHealth()
+	if err != nil {
+		return fmt.Errorf("error reading Mimir health: %w", err)
 	}
 
 	if c.config.DefaultIneligible {
@@ -2346,8 +2430,25 @@ func (c *Client) handleNodeUpdateResponse(resp structs.NodeUpdateResponse) error
 	if len(nomadServers) == 0 {
 		return noServersErr
 	}
+	nomadServers = appendBootstrapServers(nomadServers, c.GetConfig().Servers)
 	c.servers.SetServers(nomadServers)
 	return nil
+}
+
+func appendBootstrapServers(known []*servers.Server, configured []string) []*servers.Server {
+	seen := make(map[string]bool, len(known)+len(configured))
+	for _, server := range known {
+		seen[server.Addr.String()] = true
+	}
+	for _, raw := range configured {
+		addr, err := resolveServer(raw)
+		if err != nil || seen[addr.String()] {
+			continue
+		}
+		known = append(known, &servers.Server{Addr: addr})
+		seen[addr.String()] = true
+	}
+	return known
 }
 
 // AllocStateUpdated asynchronously updates the server with the current state

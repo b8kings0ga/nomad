@@ -556,6 +556,8 @@ type Node struct {
 	Reserved *Resources
 
 	NodeResources         *NodeResources
+	MimirCapability       *MimirNodeCapability
+	MimirHealth           *MimirNodeHealth
 	ReservedResources     *NodeReservedResources
 	Links                 map[string]string
 	Meta                  map[string]string
@@ -579,6 +581,33 @@ type Node struct {
 	CreateIndex           uint64
 	ModifyIndex           uint64
 	NodeMaxAllocs         int
+}
+
+type MimirRegionalNetwork struct {
+	Region, Protocol                               string
+	UploadBytesPerSecond, DownloadBytesPerSecond   float64
+	RTTMilliseconds, LossRatio, JitterMilliseconds float64
+}
+
+type MimirNodeCapability struct {
+	BenchmarkSpec, ResultID, ArtifactSHA256, HardwareFingerprint                                                    string
+	MeasuredAt                                                                                                      time.Time
+	SampleCount                                                                                                     int
+	CPUSingleMCU, CPUTotalMCU                                                                                       float64
+	Threads                                                                                                         int
+	RAMBytes                                                                                                        int64
+	RAMMMU, RAMLatencyNS                                                                                            float64
+	DiskBytes                                                                                                       int64
+	DiskReadBytesPerSecond, DiskWriteBytesPerSecond, DiskRandomReadIOPS, DiskRandomWriteIOPS, DiskFsyncMicroseconds float64
+	NetworkUploadBytesPerSecond, NetworkDownloadBytesPerSecond                                                      float64
+	Regions                                                                                                         []MimirRegionalNetwork
+}
+
+type MimirNodeHealth struct {
+	SampledAt                                                                                                  time.Time
+	CPUStealRatio, CPUPSISomeRatio, MemoryPSIFullRatio, IOPSIFullRatio                                         float64
+	MemoryAvailableBytes                                                                                       int64
+	IOQueueDepth, NetworkUtilizationRatio, NetworkLossRatio, NetworkJitterMilliseconds, NetworkRTTMilliseconds float64
 }
 
 type NodeResources struct {

@@ -221,8 +221,9 @@ type SchedulerSetConfigurationResponse struct {
 type SchedulerAlgorithm string
 
 const (
-	SchedulerAlgorithmBinpack SchedulerAlgorithm = "binpack"
-	SchedulerAlgorithmSpread  SchedulerAlgorithm = "spread"
+	SchedulerAlgorithmBinpack   SchedulerAlgorithm = "binpack"
+	SchedulerAlgorithmSpread    SchedulerAlgorithm = "spread"
+	SchedulerAlgorithmMimirCost SchedulerAlgorithm = "mimir-cost"
 )
 
 // PreemptionConfig specifies whether preemption is enabled based on scheduler type

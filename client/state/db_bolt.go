@@ -136,7 +136,10 @@ var (
 	nodeMetaBucket = []byte("nodemeta")
 
 	// nodeMetaKey is the key at which dynamic node metadata is stored.
-	nodeMetaKey = []byte("meta")
+	nodeMetaKey        = []byte("meta")
+	mimirStateBucket   = []byte("mimir")
+	mimirCapabilityKey = []byte("capability")
+	mimirHealthKey     = []byte("health")
 
 	// nodeBucket is the bucket name in which data about the node is stored.
 	nodeBucket = []byte("node")
@@ -1080,6 +1083,51 @@ func getNodeMeta(b *boltdd.Bucket) (map[string]*string, error) {
 		}
 	}
 	return m, nil
+}
+
+func (s *BoltStateDB) PutMimirCapability(v *structs.MimirNodeCapability) error {
+	return s.putMimirState(mimirCapabilityKey, v)
+}
+func (s *BoltStateDB) PutMimirHealth(v *structs.MimirNodeHealth) error {
+	return s.putMimirState(mimirHealthKey, v)
+}
+func (s *BoltStateDB) putMimirState(key []byte, v any) error {
+	return s.db.Update(func(tx *boltdd.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(mimirStateBucket)
+		if err != nil {
+			return err
+		}
+		return b.Put(key, v)
+	})
+}
+func (s *BoltStateDB) GetMimirCapability() (v *structs.MimirNodeCapability, err error) {
+	v = new(structs.MimirNodeCapability)
+	err = s.getMimirState(mimirCapabilityKey, v)
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+func (s *BoltStateDB) GetMimirHealth() (v *structs.MimirNodeHealth, err error) {
+	v = new(structs.MimirNodeHealth)
+	err = s.getMimirState(mimirHealthKey, v)
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+func (s *BoltStateDB) getMimirState(key []byte, out any) error {
+	return s.db.View(func(tx *boltdd.Tx) error {
+		b := tx.Bucket(mimirStateBucket)
+		if b == nil {
+			return nil
+		}
+		if err := b.Get(key, out); boltdd.IsErrNotFound(err) {
+			return nil
+		} else {
+			return err
+		}
+	})
 }
 
 func (s *BoltStateDB) PutNodeRegistration(reg *cstructs.NodeRegistration) error {

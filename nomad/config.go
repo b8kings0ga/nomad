@@ -701,7 +701,7 @@ func DefaultConfig() *Config {
 		ServerHealthInterval: 2 * time.Second,
 		AutopilotInterval:    10 * time.Second,
 		DefaultSchedulerConfig: structs.SchedulerConfiguration{
-			SchedulerAlgorithm: structs.SchedulerAlgorithmBinpack,
+			SchedulerAlgorithm: structs.SchedulerAlgorithmMimirCost,
 			PreemptionConfig: structs.PreemptionConfig{
 				SystemSchedulerEnabled:   true,
 				SysBatchSchedulerEnabled: false,

@@ -25,3 +25,15 @@ func TestMinimalTelemetryUsesBlackhole(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMinimalTelemetryAllowsLocalAllocationStats(t *testing.T) {
+	config := DefaultConfig()
+	config.Telemetry.PublishAllocationMetrics = true
+	if _, err := new(Command).setupTelemetry(config); err != nil {
+		t.Fatal(err)
+	}
+	config.Telemetry.PublishNodeMetrics = true
+	if _, err := new(Command).setupTelemetry(config); err == nil {
+		t.Fatal("node metrics must remain disabled")
+	}
+}
