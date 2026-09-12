@@ -656,6 +656,25 @@ func mockWorkload() *serviceregistration.WorkloadServices {
 	}
 }
 
+func TestServiceRegistrationHandler_LocalRegistrationsAreImmediateAndDefensive(t *testing.T) {
+	handler := &ServiceRegistrationHandler{localRegistrations: make(map[string]map[string]*structs.ServiceRegistration)}
+	registration := &structs.ServiceRegistration{ID: "registration-a", AllocID: "alloc-a", ServiceName: "web", Tags: []string{"mim.ingress=web.example"}}
+	handler.rememberLocalRegistrations("alloc-a", []*structs.ServiceRegistration{registration})
+
+	snapshot := handler.LocalRegistrations()
+	require.Len(t, snapshot, 1)
+	require.Equal(t, "web", snapshot[0].ServiceName)
+	snapshot[0].ServiceName = "mutated"
+	snapshot[0].Tags[0] = "mutated"
+
+	next := handler.LocalRegistrations()
+	require.Equal(t, "web", next[0].ServiceName)
+	require.Equal(t, "mim.ingress=web.example", next[0].Tags[0])
+
+	handler.forgetLocalRegistration("alloc-a", "registration-a")
+	require.Empty(t, handler.LocalRegistrations())
+}
+
 // mockRPC mocks and tracks RPC calls made for testing.
 type mockRPC struct {
 

@@ -13,7 +13,7 @@ func (s *HTTPServer) NodeMetaRequest(resp http.ResponseWriter, req *http.Request
 	switch req.Method {
 	case http.MethodGet:
 		return s.nodeMetaRead(resp, req)
-	case http.MethodPost:
+	case http.MethodPost, http.MethodPut:
 		return s.nodeMetaApply(resp, req)
 	default:
 		return nil, CodedError(405, ErrInvalidMethod)

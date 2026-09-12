@@ -39,6 +39,20 @@ func (n *NodeMeta) Apply(args *structs.NodeMetaApplyRequest, reply *structs.Node
 	var dyn map[string]*string
 
 	newNode := n.c.UpdateNode(func(node *structs.Node) {
+		if args.Capability != nil {
+			if stateErr = n.c.stateDB.PutMimirCapability(args.Capability); stateErr != nil {
+				return
+			}
+			node.MimirCapability = args.Capability.Copy()
+			node.Meta["mimir.benchmark_spec"] = args.Capability.BenchmarkSpec
+			node.Meta["mimir.benchmark_result"] = args.Capability.ResultID
+		}
+		if args.Health != nil {
+			if stateErr = n.c.stateDB.PutMimirHealth(args.Health); stateErr != nil {
+				return
+			}
+			node.MimirHealth = args.Health.Copy()
+		}
 		// First update the Client's state store. This must be done
 		// atomically with updating the metadata inmemory to avoid
 		// bad interleaving between concurrent updates.
@@ -84,6 +98,8 @@ func (n *NodeMeta) Apply(args *structs.NodeMetaApplyRequest, reply *structs.Node
 	reply.Meta = newNode.Meta
 	reply.Dynamic = dyn
 	reply.Static = n.c.metaStatic
+	reply.Capability = newNode.MimirCapability.Copy()
+	reply.Health = newNode.MimirHealth.Copy()
 	return nil
 }
 
@@ -105,5 +121,7 @@ func (n *NodeMeta) Read(args *structs.NodeSpecificRequest, reply *structs.NodeMe
 	reply.Meta = n.c.config.Node.Meta
 	reply.Dynamic = maps.Clone(n.c.metaDynamic)
 	reply.Static = n.c.metaStatic
+	reply.Capability = n.c.config.Node.MimirCapability.Copy()
+	reply.Health = n.c.config.Node.MimirHealth.Copy()
 	return nil
 }

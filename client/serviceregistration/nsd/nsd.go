@@ -45,6 +45,14 @@ type ServiceRegistrationHandler struct {
 
 	backoffMax     time.Duration
 	backoffInitial time.Duration
+
+	// localRegistrations is the node-local projection used by consumers that
+	// must continue serving already-running allocations while the Nomad server
+	// quorum is temporarily unreachable. The server state store remains the
+	// cluster authority; this projection contains only registrations generated
+	// by this client for workloads it is currently running.
+	localMu            sync.RWMutex
+	localRegistrations map[string]map[string]*structs.ServiceRegistration
 }
 
 // ServiceRegistrationHandlerCfg holds critical information used during the
@@ -98,6 +106,7 @@ func NewServiceRegistrationHandler(log hclog.Logger, cfg *ServiceRegistrationHan
 		shutDownCh:          make(chan struct{}),
 		backoffMax:          cfg.BackoffMax,
 		backoffInitial:      cfg.BackoffInitial,
+		localRegistrations:  make(map[string]map[string]*structs.ServiceRegistration),
 	}
 	if s.backoffInitial == 0 {
 		s.backoffInitial = 100 * time.Millisecond
@@ -142,6 +151,8 @@ func (s *ServiceRegistrationHandler) RegisterWorkload(workload *serviceregistrat
 	if err := mErr.ErrorOrNil(); err != nil {
 		return err
 	}
+
+	s.rememberLocalRegistrations(workload.AllocInfo.AllocID, registrations)
 
 	// Service registrations look ok; startup check watchers as specified. The
 	// astute observer may notice the services are not actually registered yet -
@@ -206,6 +217,7 @@ func (s *ServiceRegistrationHandler) removeWorkload(
 
 	// Generate the consistent ID for this service, so we know what to remove.
 	id := serviceregistration.MakeAllocServiceID(workload.AllocInfo.AllocID, workload.Name(), serviceSpec)
+	s.forgetLocalRegistration(workload.AllocInfo.AllocID, id)
 
 	deleteArgs := structs.ServiceRegistrationDeleteByIDRequest{
 		ID: id,
@@ -344,6 +356,55 @@ func (s *ServiceRegistrationHandler) dedupUpdatedWorkload(
 // function.
 func (s *ServiceRegistrationHandler) AllocRegistrations(_ string) (*serviceregistration.AllocRegistration, error) {
 	return nil, nil
+}
+
+// LocalRegistrations returns a defensive snapshot of registrations generated
+// by this Nomad client. It deliberately does not query or forward to a Nomad
+// server and is therefore suitable for node-local data-plane authorization.
+func (s *ServiceRegistrationHandler) LocalRegistrations() []*structs.ServiceRegistration {
+	s.localMu.RLock()
+	defer s.localMu.RUnlock()
+	var out []*structs.ServiceRegistration
+	for _, registrations := range s.localRegistrations {
+		for _, registration := range registrations {
+			out = append(out, copyLocalRegistration(registration))
+		}
+	}
+	return out
+}
+
+func (s *ServiceRegistrationHandler) rememberLocalRegistrations(allocID string, registrations []*structs.ServiceRegistration) {
+	s.localMu.Lock()
+	defer s.localMu.Unlock()
+	byID := s.localRegistrations[allocID]
+	if byID == nil {
+		byID = make(map[string]*structs.ServiceRegistration)
+		s.localRegistrations[allocID] = byID
+	}
+	for _, registration := range registrations {
+		if registration != nil && registration.ID != "" {
+			byID[registration.ID] = copyLocalRegistration(registration)
+		}
+	}
+}
+
+func (s *ServiceRegistrationHandler) forgetLocalRegistration(allocID, registrationID string) {
+	s.localMu.Lock()
+	defer s.localMu.Unlock()
+	byID := s.localRegistrations[allocID]
+	delete(byID, registrationID)
+	if len(byID) == 0 {
+		delete(s.localRegistrations, allocID)
+	}
+}
+
+func copyLocalRegistration(registration *structs.ServiceRegistration) *structs.ServiceRegistration {
+	if registration == nil {
+		return nil
+	}
+	copy := *registration
+	copy.Tags = append([]string(nil), registration.Tags...)
+	return &copy
 }
 
 // UpdateTTL is currently a noop implementation as the Nomad provider does not

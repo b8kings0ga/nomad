@@ -16,10 +16,12 @@ func (c *Command) setupTelemetry(config *Config) (*metrics.InmemSink, error) {
 	tel := config.Telemetry
 	if tel != nil && (tel.StatsiteAddr != "" || tel.StatsdAddr != "" || tel.PrometheusMetrics ||
 		tel.DataDogAddr != "" || len(tel.DataDogTags) != 0 || tel.CirconusAPIToken != "" ||
-		tel.CirconusCheckSubmissionURL != "" || tel.PublishAllocationMetrics || tel.PublishNodeMetrics ||
+		tel.CirconusCheckSubmissionURL != "" || tel.PublishNodeMetrics ||
 		tel.IncludeAllocMetadataInMetrics || len(tel.AllowedMetadataKeysInMetrics) != 0) {
 		return nil, fmt.Errorf("nomad_min: unsupported feature metrics exporter")
 	}
+	// PublishAllocationMetrics permits the opt-in mimc task sampler and local
+	// allocation stats API. It does not enable an exporter in the minimal build.
 	// Agent and HTTP interfaces retain the concrete InmemSink type for full
 	// builds. Keep a tiny detached instance for that API, while all process
 	// metrics go to a blackhole sink.

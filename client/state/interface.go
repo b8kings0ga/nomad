@@ -133,6 +133,10 @@ type StateDB interface {
 	// GetNodeMeta retrieves node metadata for merging with the copy from
 	// the Client's config.
 	GetNodeMeta() (map[string]*string, error)
+	PutMimirCapability(*structs.MimirNodeCapability) error
+	GetMimirCapability() (*structs.MimirNodeCapability, error)
+	PutMimirHealth(*structs.MimirNodeHealth) error
+	GetMimirHealth() (*structs.MimirNodeHealth, error)
 
 	PutNodeRegistration(*cstructs.NodeRegistration) error
 	GetNodeRegistration() (*cstructs.NodeRegistration, error)

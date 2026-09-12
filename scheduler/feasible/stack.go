@@ -74,6 +74,7 @@ type GenericStack struct {
 	spread                        *SpreadIterator
 	scoreNorm                     *ScoreNormalizationIterator
 	nodeLimitForFeasibilityChecks int
+	mimirCost                     bool
 }
 
 func (s *GenericStack) SetNodes(baseNodes []*structs.Node) {
@@ -130,6 +131,7 @@ func (s *GenericStack) SetJob(job *structs.Job) {
 // on the node pool being used.
 func (s *GenericStack) SetSchedulerConfiguration(schedConfig *structs.SchedulerConfiguration) {
 	s.binPack.SetSchedulerConfiguration(schedConfig)
+	s.mimirCost = schedConfig.EffectiveSchedulerAlgorithm() == structs.SchedulerAlgorithmMimirCost
 	s.nodeLimitForFeasibilityChecks = int(schedConfig.GetNodeLimitForFeasibilityChecks())
 }
 
@@ -154,6 +156,9 @@ func (s *GenericStack) Select(tg *structs.TaskGroup, options *SelectOptions) *Ra
 	s.maxScore.Reset()
 	s.ctx.Reset()
 	start := time.Now()
+	if s.mimirCost {
+		s.limit.SetLimit(len(s.source.nodes))
+	}
 
 	// Get the task groups constraints.
 	tgConstr := TaskGroupConstraints(tg)

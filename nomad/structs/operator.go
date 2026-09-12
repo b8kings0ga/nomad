@@ -210,6 +210,8 @@ const (
 	// allocations as evenly as possible over the available hardware.
 	SchedulerAlgorithmSpread SchedulerAlgorithm = "spread"
 
+	SchedulerAlgorithmMimirCost SchedulerAlgorithm = "mimir-cost"
+
 	// DefaultNodeLimitForFeasibilityChecks is the default value of
 	// NodeLimitForFeasibilityChecks if not specified
 	DefaultNodeLimitForFeasibilityChecks = 100
@@ -260,7 +262,7 @@ func (s *SchedulerConfiguration) Copy() *SchedulerConfiguration {
 
 func (s *SchedulerConfiguration) EffectiveSchedulerAlgorithm() SchedulerAlgorithm {
 	if s == nil || s.SchedulerAlgorithm == "" {
-		return SchedulerAlgorithmBinpack
+		return SchedulerAlgorithmMimirCost
 	}
 
 	return s.SchedulerAlgorithm
@@ -295,7 +297,7 @@ func (s *SchedulerConfiguration) WithNodePool(pool *NodePool) *SchedulerConfigur
 
 func (s *SchedulerConfiguration) Canonicalize() {
 	if s != nil && s.SchedulerAlgorithm == "" {
-		s.SchedulerAlgorithm = SchedulerAlgorithmBinpack
+		s.SchedulerAlgorithm = SchedulerAlgorithmMimirCost
 	}
 }
 
@@ -305,7 +307,7 @@ func (s *SchedulerConfiguration) Validate() error {
 	}
 
 	switch s.SchedulerAlgorithm {
-	case "", SchedulerAlgorithmBinpack, SchedulerAlgorithmSpread:
+	case "", SchedulerAlgorithmBinpack, SchedulerAlgorithmSpread, SchedulerAlgorithmMimirCost:
 	default:
 		return fmt.Errorf("invalid scheduler algorithm: %v", s.SchedulerAlgorithm)
 	}
