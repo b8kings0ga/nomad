@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"time"
 
 	"github.com/hashicorp/go-set/v3"
 	"github.com/hashicorp/nomad/client/lib/idset"
@@ -33,6 +34,7 @@ type RankedNode struct {
 	TaskResources  map[string]*structs.AllocatedTaskResources
 	TaskLifecycles map[string]*structs.TaskLifecycleConfig
 	AllocResources *structs.AllocatedSharedResources
+	MimirAbsolute  bool
 
 	// Proposed is used to cache the proposed allocations on the
 	// node. This can be shared between iterators that require it.
@@ -167,6 +169,7 @@ type BinPackIterator struct {
 	taskGroup              *structs.TaskGroup
 	memoryOversubscription bool
 	scoreFit               func(*structs.Node, *structs.ComparableResources) float64
+	mimirCost              bool
 }
 
 // NewBinPackIterator returns a BinPackIterator which tries to fit tasks
@@ -197,6 +200,7 @@ func (iter *BinPackIterator) SetTaskGroup(taskGroup *structs.TaskGroup) {
 func (iter *BinPackIterator) SetSchedulerConfiguration(schedConfig *structs.SchedulerConfiguration) {
 	// Set scoring function.
 	algorithm := schedConfig.EffectiveSchedulerAlgorithm()
+	iter.mimirCost = algorithm == structs.SchedulerAlgorithmMimirCost
 	scoreFn := structs.ScoreFitBinPack
 	if algorithm == structs.SchedulerAlgorithmSpread {
 		scoreFn = structs.ScoreFitSpread
@@ -778,6 +782,23 @@ NEXTNODE:
 			option.PreemptedAllocs = allocsToPreempt
 		}
 
+		if iter.mimirCost {
+			req := deriveMimirRequirement(iter.taskGroup)
+			if option.Node.Meta["mim_benchmarking"] == "true" && !req.BenchmarkWorkload && !req.ControlPlaneWorkload {
+				iter.ctx.Metrics().ExhaustedNode(option.Node, "mimir benchmark maintenance")
+				continue NEXTNODE
+			}
+			cost, ok := structs.MimirPlacementCost(option.Node.MimirCapability, option.Node.MimirHealth, req, mimirUsage(current), time.Now())
+			if !ok {
+				iter.ctx.Metrics().ExhaustedNode(option.Node, "mimir capability or health")
+				continue NEXTNODE
+			}
+			option.Scores = []float64{-cost}
+			option.MimirAbsolute = true
+			iter.ctx.Metrics().ScoreNode(option.Node, "mimir-cost", -cost)
+			return option
+		}
+
 		// Score the fit normally otherwise
 		fitness := iter.scoreFit(option.Node, util)
 		normalizedFit := fitness / binPackingMaxFitScore
@@ -793,6 +814,46 @@ NEXTNODE:
 
 		return option
 	}
+}
+
+func deriveMimirRequirement(tg *structs.TaskGroup) *structs.MimirWorkloadRequirement {
+	if tg == nil {
+		return nil
+	}
+	if tg.MimirRequirement != nil {
+		q := *tg.MimirRequirement
+		return &q
+	}
+	q := &structs.MimirWorkloadRequirement{}
+	for _, task := range tg.Tasks {
+		if task.Resources == nil {
+			continue
+		}
+		q.CPUExpectedMCU += float64(task.Resources.CPU) / 1000
+		q.MemoryBytes += int64(task.Resources.MemoryMB) << 20
+	}
+	if tg.EphemeralDisk != nil {
+		q.DiskBytes = int64(tg.EphemeralDisk.SizeMB) << 20
+	}
+	return q
+}
+
+func mimirUsage(allocs []*structs.Allocation) structs.MimirResourceUsage {
+	var usage structs.MimirResourceUsage
+	for _, alloc := range allocs {
+		if alloc == nil || alloc.AllocatedResources == nil {
+			continue
+		}
+		for _, task := range alloc.AllocatedResources.Tasks {
+			if task == nil {
+				continue
+			}
+			usage.CPUMCU += float64(task.Cpu.CpuShares) / 1000
+			usage.RAMBytes += float64(task.Memory.MemoryMB) * (1 << 20)
+		}
+		usage.DiskBytes += float64(alloc.AllocatedResources.Shared.DiskMB) * (1 << 20)
+	}
+	return usage
 }
 
 func (iter *BinPackIterator) Reset() {
@@ -1024,6 +1085,11 @@ func (iter *ScoreNormalizationIterator) Reset() {
 func (iter *ScoreNormalizationIterator) Next() *RankedNode {
 	option := iter.source.Next()
 	if option == nil || len(option.Scores) == 0 {
+		return option
+	}
+	if option.MimirAbsolute {
+		option.FinalScore = option.Scores[0]
+		iter.ctx.Metrics().ScoreNode(option.Node, "mimir-absolute-cost", option.FinalScore)
 		return option
 	}
 	numScorers := len(option.Scores)

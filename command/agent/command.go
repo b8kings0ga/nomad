@@ -974,7 +974,7 @@ func (c *Command) handleRetryJoin(config *Config) error {
 			autoDiscover: newAutoDiscover(),
 			errCh:        c.retryJoinErrCh,
 			joinCfg:      config.Client.ServerJoin,
-			joinFunc:     c.agent.client.SetServers,
+			joinFunc:     c.agent.client.SetBootstrapServers,
 			logger:       c.agent.logger.Named("joiner").With("agent_mode", "client"),
 		}
 

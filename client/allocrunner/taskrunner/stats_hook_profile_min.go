@@ -10,6 +10,12 @@ import (
 	"github.com/hashicorp/nomad/client/allocrunner/interfaces"
 )
 
-func appendStatsHook(hooks []interfaces.TaskHook, _ *TaskRunner, _ hclog.Logger) []interfaces.TaskHook {
-	return hooks
+func appendStatsHook(hooks []interfaces.TaskHook, runner *TaskRunner, logger hclog.Logger) []interfaces.TaskHook {
+	// Keep the minimal profile opt-in and limited to mimc. Reuse the existing
+	// collection interval, lifecycle and publication policy rather than adding
+	// a separate sampler or enabling every driver's statistics.
+	if runner.task.Driver != "mimc" || !runner.clientConfig.PublishAllocationMetrics {
+		return hooks
+	}
+	return append(hooks, newStatsHook(runner, runner.clientConfig.StatsCollectionInterval, true, logger))
 }

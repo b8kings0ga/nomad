@@ -451,7 +451,10 @@ func (s *HTTPServer) registerHandlers(enableDebug bool) {
 	s.mux.HandleFunc("/v1/client/gc", s.wrap(s.ClientGCRequest))
 	s.mux.Handle("/v1/client/stats", wrapCORS(s.wrap(s.ClientStatsRequest)))
 	s.mux.Handle("/v1/client/allocation/", wrapCORS(s.wrap(s.ClientAllocRequest)))
+	s.mux.Handle("/v1/client/services", wrapCORS(s.wrap(s.ClientServicesRequest)))
 	s.mux.Handle("/v1/client/metadata", wrapCORS(s.wrap(s.NodeMetaRequest)))
+	s.mux.Handle("/v1/client/mimir-capability", wrapCORS(s.wrap(s.NodeMetaRequest)))
+	s.mux.Handle("/v1/client/mimir-health", wrapCORS(s.wrap(s.NodeMetaRequest)))
 	s.mux.Handle("/v1/client/identity", wrapCORS(s.wrap(s.NodeIdentityGetRequest)))
 	s.mux.Handle("/v1/client/identity/renew", wrapCORS(s.wrap(s.NodeIdentityRenewRequest)))
 

@@ -494,11 +494,19 @@ type NodeMetaApplyRequest struct {
 	// Meta is the new Node metadata being applied and differs slightly
 	// from Node.Meta as nil values are used to unset Node.Meta keys.
 	Meta map[string]*string
+
+	Capability *MimirNodeCapability
+	Health     *MimirNodeHealth
 }
 
 func (n *NodeMetaApplyRequest) Validate() error {
-	if len(n.Meta) == 0 {
-		return fmt.Errorf("missing required Meta object")
+	if len(n.Meta) == 0 && n.Capability == nil && n.Health == nil {
+		return fmt.Errorf("missing required capability, health, or Meta object")
+	}
+	if n.Capability != nil {
+		if err := n.Capability.Validate(); err != nil {
+			return err
+		}
 	}
 	for k := range n.Meta {
 		if k == "" {
@@ -528,6 +536,9 @@ type NodeMetaResponse struct {
 
 	// Static is the static Node metadata (set via agent configuration)
 	Static map[string]string
+
+	Capability *MimirNodeCapability
+	Health     *MimirNodeHealth
 }
 
 // NodeIdentityClaims represents the claims for a Nomad node identity JWT.

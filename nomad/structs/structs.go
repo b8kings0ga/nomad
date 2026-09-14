@@ -2047,6 +2047,11 @@ type Node struct {
 	// NodeResources captures the available resources on the client.
 	NodeResources *NodeResources
 
+	// MimirCapability is the immutable promoted absolute capability record and
+	// MimirHealth is the independently refreshed dynamic health snapshot.
+	MimirCapability *MimirNodeCapability
+	MimirHealth     *MimirNodeHealth
+
 	// ReservedResources captures the set resources on the client that are
 	// reserved from scheduling.
 	ReservedResources *NodeReservedResources
@@ -2230,6 +2235,8 @@ func (n *Node) Copy() *Node {
 	nn := *n
 	nn.Attributes = maps.Clone(nn.Attributes)
 	nn.NodeResources = nn.NodeResources.Copy()
+	nn.MimirCapability = nn.MimirCapability.Copy()
+	nn.MimirHealth = nn.MimirHealth.Copy()
 	nn.ReservedResources = nn.ReservedResources.Copy()
 	nn.Links = maps.Clone(nn.Links)
 	nn.Meta = maps.Clone(nn.Meta)
@@ -6882,6 +6889,10 @@ type TaskGroup struct {
 	// be scheduled.
 	Count int
 
+	// MimirRequirement expresses absolute workload requirements used after
+	// Nomad's native feasibility checks.
+	MimirRequirement *MimirWorkloadRequirement
+
 	// Update is used to control the update strategy for this task group
 	Update *UpdateStrategy
 
@@ -6969,6 +6980,10 @@ func (tg *TaskGroup) Copy() *TaskGroup {
 	}
 	ntg := new(TaskGroup)
 	*ntg = *tg
+	if tg.MimirRequirement != nil {
+		v := *tg.MimirRequirement
+		ntg.MimirRequirement = &v
+	}
 	ntg.Update = ntg.Update.Copy()
 	ntg.Constraints = CopySliceConstraints(ntg.Constraints)
 	ntg.RestartPolicy = ntg.RestartPolicy.Copy()

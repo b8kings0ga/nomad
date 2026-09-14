@@ -3,6 +3,8 @@
 
 package feasible
 
+import "math"
+
 // LimitIterator is a RankIterator used to limit the number of options
 // that are returned before we artificially end the stream.
 type LimitIterator struct {
@@ -107,7 +109,8 @@ func (iter *MaxScoreIterator) Next() *RankedNode {
 			return iter.max
 		}
 
-		if iter.max == nil || option.FinalScore > iter.max.FinalScore {
+		if iter.max == nil || option.FinalScore > iter.max.FinalScore ||
+			(math.Abs(option.FinalScore-iter.max.FinalScore) <= 1e-12 && option.Node.ID < iter.max.Node.ID) {
 			iter.max = option
 		}
 	}

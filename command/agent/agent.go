@@ -894,7 +894,15 @@ func convertClientConfig(agentConfig *Config) (*clientconfig.Config, error) {
 	if conf == nil {
 		conf = clientconfig.DefaultConfig()
 	}
-	conf.Servers = agentConfig.Client.Servers
+	conf.Servers = append([]string(nil), agentConfig.Client.Servers...)
+	// Client state restoration starts inside NewClient, before the outer
+	// retry-join goroutine can run. Prime literal retry-join endpoints now so
+	// restoring an existing service does not fail with an empty server pool.
+	// Discovery expressions remain owned by retry-join.
+	if join := agentConfig.Client.ServerJoin; join != nil {
+		conf.Servers = appendStaticClientBootstrapServers(conf.Servers, join.RetryJoin)
+	}
+
 	conf.DevMode = agentConfig.DevMode
 	conf.EnableDebug = agentConfig.EnableDebug
 	conf.IntroToken = agentConfig.Client.IntroToken
@@ -1787,3 +1795,21 @@ func (e *noOpAuditor) Reopen() error {
 func (e *noOpAuditor) SetEnabled(enabled bool) {}
 
 func (e *noOpAuditor) DeliveryEnforced() bool { return false }
+
+func appendStaticClientBootstrapServers(existing, retryJoin []string) []string {
+	out := append([]string(nil), existing...)
+	seen := make(map[string]bool, len(out))
+	for _, address := range out {
+		seen[address] = true
+	}
+	for _, address := range retryJoin {
+		address = strings.TrimSpace(address)
+		host, port, err := net.SplitHostPort(address)
+		if err != nil || host == "" || port == "" || strings.ContainsAny(address, " =") || seen[address] {
+			continue
+		}
+		seen[address] = true
+		out = append(out, address)
+	}
+	return out
+}

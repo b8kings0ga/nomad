@@ -1233,6 +1233,17 @@ func ApiTgToStructsTG(job *structs.Job, taskGroup *api.TaskGroup, tg *structs.Ta
 	tg.Networks = ApiNetworkResourceToStructs(taskGroup.Networks)
 	tg.Services = ApiServicesToStructs(taskGroup.Services, true)
 	tg.Consul = apiConsulToStructs(taskGroup.Consul)
+	if r := taskGroup.MimirRequirement; r != nil {
+		tg.MimirRequirement = &structs.MimirWorkloadRequirement{
+			CPUExpectedMCU: r.CPUExpectedMCU, CPUSingleMinimumMCU: r.CPUSingleMinimumMCU,
+			MemoryBytes: r.MemoryBytes, MemoryBandwidthMMU: r.MemoryBandwidthMMU,
+			DiskBytes: r.DiskBytes, DiskReadBytesPerSecond: r.DiskReadBytesPerSecond, DiskWriteBytesPerSecond: r.DiskWriteBytesPerSecond,
+			DiskReadIOPS: r.DiskReadIOPS, DiskWriteIOPS: r.DiskWriteIOPS, DiskFsyncMaxMicroseconds: r.DiskFsyncMaxMicroseconds,
+			NetworkUploadBytesPerSecond: r.NetworkUploadBytesPerSecond, NetworkDownloadBytesPerSecond: r.NetworkDownloadBytesPerSecond,
+			Region: r.Region, Protocol: r.Protocol, RTTTargetMilliseconds: r.RTTTargetMilliseconds,
+			BenchmarkWorkload: r.BenchmarkWorkload, ControlPlaneWorkload: r.ControlPlaneWorkload,
+		}
+	}
 
 	tg.RestartPolicy = &structs.RestartPolicy{
 		Attempts:        *taskGroup.RestartPolicy.Attempts,

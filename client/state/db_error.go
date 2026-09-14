@@ -150,6 +150,12 @@ func (m *ErrDB) PutNodeMeta(map[string]*string) error {
 func (m *ErrDB) GetNodeMeta() (map[string]*string, error) {
 	return nil, fmt.Errorf("Error!")
 }
+func (m *ErrDB) PutMimirCapability(*structs.MimirNodeCapability) error { return fmt.Errorf("Error!") }
+func (m *ErrDB) GetMimirCapability() (*structs.MimirNodeCapability, error) {
+	return nil, fmt.Errorf("Error!")
+}
+func (m *ErrDB) PutMimirHealth(*structs.MimirNodeHealth) error     { return fmt.Errorf("Error!") }
+func (m *ErrDB) GetMimirHealth() (*structs.MimirNodeHealth, error) { return nil, fmt.Errorf("Error!") }
 
 func (m *ErrDB) PutNodeRegistration(reg *cstructs.NodeRegistration) error {
 	return fmt.Errorf("Error!")

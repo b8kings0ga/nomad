@@ -492,6 +492,7 @@ func (vm *VolumeMount) Canonicalize() {
 type TaskGroup struct {
 	Name             *string                   `hcl:"name,label"`
 	Count            *int                      `hcl:"count,optional"`
+	MimirRequirement *MimirWorkloadRequirement `hcl:"mimir_requirement,block"`
 	Constraints      []*Constraint             `hcl:"constraint,block"`
 	Affinities       []*Affinity               `hcl:"affinity,block"`
 	Tasks            []*Task                   `hcl:"task,block"`
@@ -516,6 +517,19 @@ type TaskGroup struct {
 	Consul              *Consul        `hcl:"consul,block"`
 	// Deprecated: PreventRescheduleOnLost is deprecated in Nomad 1.8.0 and ignored in Nomad 1.10. Use Disconnect.Replace.
 	PreventRescheduleOnLost *bool `hcl:"prevent_reschedule_on_lost,optional"`
+}
+
+type MimirWorkloadRequirement struct {
+	CPUExpectedMCU, CPUSingleMinimumMCU                        float64
+	MemoryBytes                                                int64
+	MemoryBandwidthMMU                                         float64
+	DiskBytes                                                  int64
+	DiskReadBytesPerSecond, DiskWriteBytesPerSecond            float64
+	DiskReadIOPS, DiskWriteIOPS, DiskFsyncMaxMicroseconds      float64
+	NetworkUploadBytesPerSecond, NetworkDownloadBytesPerSecond float64
+	Region, Protocol                                           string
+	RTTTargetMilliseconds                                      float64
+	BenchmarkWorkload, ControlPlaneWorkload                    bool
 }
 
 // NewTaskGroup creates a new TaskGroup.

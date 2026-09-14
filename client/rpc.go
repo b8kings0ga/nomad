@@ -96,6 +96,8 @@ func (c *Client) rpc(method string, args any, reply any) error {
 		defer info.SetTimeToBlock(oldBlockTime)
 	}
 
+	retriedUnsentAfterDeadline := false
+
 TRY:
 	var rpcErr error
 
@@ -120,7 +122,9 @@ TRY:
 
 		// Move off to another server, and see if we can retry.
 		c.rpcLogger.Error("error performing RPC to server", "error", rpcErr, "rpc", method, "server", server.Addr)
-		c.servers.NotifyFailedServer(server)
+		if rpcServerUnavailable(rpcErr) {
+			c.servers.NotifyFailedServer(server)
+		}
 
 		if !canRetry(args, rpcErr) {
 			c.rpcLogger.Error("error performing RPC to server which is not safe to automatically retry", "error", rpcErr, "rpc", method, "server", server.Addr)
@@ -129,6 +133,16 @@ TRY:
 	}
 
 	if time.Now().After(deadline) {
+		// Dialing can consume the hold budget before the first request is sent.
+		// Permit one final attempt on a different server only with local proof
+		// that no RPC was sent. Each connection remains dial-timeout bounded;
+		// an ambiguous response or a second failure never extends this budget.
+		if !retriedUnsentAfterDeadline && errors.Is(rpcErr, pool.ErrRPCNotSent) && server != nil {
+			if next := c.servers.FindServer(); next != nil && next.Addr.String() != server.Addr.String() {
+				retriedUnsentAfterDeadline = true
+				goto TRY
+			}
+		}
 		// Blocking queries are tricky.  jitters and rpcholdtimes in multiple
 		// places can result in our server call taking longer than we wanted it
 		// to. For example: a block time of 5s may easily turn into the server
@@ -169,8 +183,21 @@ TRY:
 	return rpcErr
 }
 
+// A remote application rejection proves that the server answered. Treating
+// permission/not-found responses as connection failures rotates away from a
+// healthy route and can select an unreachable advertised address instead.
+func rpcServerUnavailable(err error) bool {
+	var serverError rpc.ServerError
+	return !errors.As(err, &serverError) || structs.IsErrNoLeader(err) || helper.IsErrEOF(err)
+}
+
 // canRetry returns true if the given situation is safe for a retry.
 func canRetry(args interface{}, err error) bool {
+	// The connection pool proves that no RPC bytes were sent. This includes
+	// concurrent callers waiting on a failed initial connection during restore.
+	if errors.Is(err, pool.ErrRPCNotSent) {
+		return true
+	}
 	// No leader errors are always safe to retry since no state could have
 	// been changed.
 	if structs.IsErrNoLeader(err) {

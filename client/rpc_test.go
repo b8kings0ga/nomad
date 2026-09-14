@@ -5,18 +5,40 @@ package client
 
 import (
 	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/rpc"
 	"testing"
 	"time"
 
+	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/ci"
 	"github.com/hashicorp/nomad/client/config"
+	"github.com/hashicorp/nomad/client/servers"
+	"github.com/hashicorp/nomad/helper/pool"
 	"github.com/hashicorp/nomad/nomad"
 	"github.com/hashicorp/nomad/nomad/structs"
 	sconfig "github.com/hashicorp/nomad/nomad/structs/config"
 	"github.com/hashicorp/nomad/testutil"
+	"github.com/hashicorp/yamux"
 	"github.com/shoenig/test/must"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRPCApplicationRejectionPreservesServer(t *testing.T) {
+	for _, err := range []error{rpc.ServerError("service registration not found"), rpc.ServerError("Permission denied")} {
+		if rpcServerUnavailable(fmt.Errorf("rpc error: %w", err)) {
+			t.Fatalf("application response rotated healthy server: %v", err)
+		}
+	}
+	if !rpcServerUnavailable(io.EOF) || !rpcServerUnavailable(errors.New("connection refused")) {
+		t.Fatal("transport failure did not rotate server")
+	}
+	if !rpcServerUnavailable(rpc.ServerError(structs.ErrNoLeader.Error())) {
+		t.Fatal("leader loss did not rotate server")
+	}
+}
 
 func TestRpc_streamingRpcConn_badEndpoint(t *testing.T) {
 	ci.Parallel(t)
@@ -245,4 +267,42 @@ func TestRpc_RetryBlockTime(t *testing.T) {
 
 	must.Eq(t, expectMaxQueryTime, req.MaxQueryTime,
 		must.Sprintf("MaxQueryTime was changed during retries but not reset"))
+}
+
+func TestRPCWriteRetryRequiresProofRequestWasNotSent(t *testing.T) {
+	args := &structs.ServiceRegistrationUpsertRequest{}
+	if !canRetry(args, fmt.Errorf("connection unavailable: %w", pool.ErrRPCNotSent)) {
+		t.Fatal("unsent write was not retried")
+	}
+	for _, err := range []error{io.EOF, errors.New("connection lost after write"), rpc.ServerError(pool.ErrRPCNotSent.Error())} {
+		if canRetry(args, err) {
+			t.Fatalf("ambiguous or rejected write retried: %v", err)
+		}
+	}
+}
+
+func TestRPCUnsentRequestTriesAlternateAfterDialBudget(t *testing.T) {
+	srv, cleanup := nomad.TestServer(t, nil)
+	defer cleanup()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := listener.Addr()
+	listener.Close()
+	cfg := config.DefaultConfig()
+	cfg.RPCHoldTimeout = time.Nanosecond
+	logger := hclog.NewNullLogger()
+	p := pool.NewPool(logger, time.Second, 2, nil, yamux.DefaultConfig(), time.Second)
+	defer p.Shutdown()
+	c := &Client{config: cfg, connPool: p, shutdownCh: make(chan struct{}), rpcLogger: logger}
+	c.servers = servers.New(logger, c.shutdownCh, nil)
+	first := &servers.Server{Addr: bad}
+	c.servers.SetServers(servers.Servers{first})
+	c.servers.SetServers(servers.Servers{first, &servers.Server{Addr: srv.GetConfig().RPCAddr}})
+	var reply string
+	// The transport retry decision must not depend on declaring this a read.
+	if err := c.rpc("Status.Leader", &structs.WriteRequest{Region: cfg.Region}, &reply); err != nil {
+		t.Fatalf("unsent first attempt did not reach alternate: %v", err)
+	}
 }

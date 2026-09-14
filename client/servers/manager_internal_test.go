@@ -42,6 +42,23 @@ func testManager(t *testing.T) (m *Manager) {
 	return m
 }
 
+func TestManagerDiscoveryPreservesRecoveredServer(t *testing.T) {
+	m := testManager(t)
+	working := &Server{Addr: &fauxAddr{"working-bootstrap"}}
+	advertised := &Server{Addr: &fauxAddr{"unreachable-advertised"}}
+	for range 100 {
+		m.SetServers(Servers{working})
+		m.SetServers(Servers{advertised, working})
+		if !m.FindServer().Equal(working) {
+			t.Fatal("heartbeat displaced recovered server")
+		}
+	}
+	m.SetServers(Servers{advertised})
+	if !m.FindServer().Equal(advertised) {
+		t.Fatal("removed server retained")
+	}
+}
+
 func TestManagerInternal_cycleServer(t *testing.T) {
 	ci.Parallel(t)
 
