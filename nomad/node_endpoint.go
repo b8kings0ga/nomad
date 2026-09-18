@@ -194,6 +194,9 @@ func (n *Node) Register(args *structs.NodeRegisterRequest, reply *structs.NodeUp
 	} else if !n.newRegistrationAllowed(args, authErr) {
 		return structs.ErrPermissionDenied
 	}
+	if err := n.checkRatatoskrPackageAdmission(snap, args.Node); err != nil {
+		return err
+	}
 
 	// We have a valid node connection, so add the mapping to cache the
 	// connection and allow the server to send RPCs to the client. We only cache
