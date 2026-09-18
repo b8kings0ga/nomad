@@ -27,6 +27,15 @@ for tool in go make tar zstd; do
   }
 done
 
+source_version="$(awk '$1 == "Version" && $2 == "=" {gsub(/"/, "", $3); print $3}' "${ROOT_DIR}/version/version.go")"
+source_prerelease="$(awk '$1 == "VersionPrerelease" && $2 == "=" {gsub(/"/, "", $3); print $3}' "${ROOT_DIR}/version/version.go")"
+source_metadata="$(awk '$1 == "VersionMetadata" && $2 == "=" {gsub(/"/, "", $3); print $3}' "${ROOT_DIR}/version/version.go")"
+source_full_version="${source_version}${source_prerelease:+-${source_prerelease}}${source_metadata:++${source_metadata}}"
+[[ -n "${source_version}" && "${VERSION}" == "${source_full_version}" ]] || {
+  echo "package version ${VERSION} does not match Nomad source version ${source_full_version}" >&2
+  exit 1
+}
+
 cd "${ROOT_DIR}"
 make nomad-min
 mkdir -p "${OUT_DIR}" "${WORK_DIR}"

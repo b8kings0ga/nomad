@@ -2259,8 +2259,10 @@ func (c *Client) getRegistrationToken() string {
 
 // registerNode is used to register the node or update the registration
 func (c *Client) registerNode(authToken string) error {
+	node := c.Node().Copy()
+	setRatatoskrPackageForRegistration(node, ratatoskrPackageMarkerPath)
 	req := structs.NodeRegisterRequest{
-		Node: c.Node(),
+		Node: node,
 		WriteRequest: structs.WriteRequest{
 			Region:    c.Region(),
 			AuthToken: authToken,
