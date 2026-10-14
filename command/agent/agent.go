@@ -1566,6 +1566,16 @@ func (a *Agent) RPC(method string, args any, reply any) error {
 	return a.client.RPC(method, args, reply)
 }
 
+// RPCContext is RPC with caller cancellation for forwarded client requests.
+// Local server RPCs remain synchronous because they do not use the pooled
+// transport that this deadline protects.
+func (a *Agent) RPCContext(ctx context.Context, method string, args interface{}, reply interface{}) error {
+	if a.server != nil {
+		return a.server.RPC(method, args, reply)
+	}
+	return a.client.RPCContext(ctx, method, args, reply)
+}
+
 // Client returns the configured client or nil
 func (a *Agent) Client() *client.Client {
 	return a.client

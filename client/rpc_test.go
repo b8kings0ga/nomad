@@ -4,11 +4,13 @@
 package client
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/rpc"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -218,12 +220,10 @@ func Test_resolveServer(t *testing.T) {
 func TestRpc_RetryBlockTime(t *testing.T) {
 	ci.Parallel(t)
 
-	// Timeouts have to allow for multiple passes thru the recursive c.rpc
-	// call. Unconfigurable internal timeouts prevent us from using a shorter
-	// MaxQueryTime base for this test
+	// The server-side leader wait is not configurable in this integration
+	// test, so the client budget must include both it and MaxQueryTime.
 	expectMaxQueryTime := time.Second
 	rpcHoldTimeout := 5 * time.Second
-	unblockTimeout := 7 * time.Second
 
 	srv, cleanupSrv := nomad.TestServer(t, func(c *nomad.Config) {
 		c.NumSchedulers = 0
@@ -249,20 +249,13 @@ func TestRpc_RetryBlockTime(t *testing.T) {
 	}
 
 	resp := structs.NodeClientAllocsResponse{}
-	errCh := make(chan error)
-
-	go func() {
-		err := c.rpc("Node.GetClientAllocs", &req, &resp)
-		errCh <- err
-	}()
-
-	// wait for the blocking query to run long enough for 2 passes thru,
-	// including jitter
-	select {
-	case err := <-errCh:
-		must.NoError(t, err)
-	case <-time.After(unblockTimeout):
-		cleanupC() // force unblock
+	start := time.Now()
+	err := c.rpc(context.Background(), "Node.GetClientAllocs", &req, &resp)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected fixed request deadline, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > rpcHoldTimeout+expectMaxQueryTime+time.Second {
+		t.Fatalf("blocking retries extended request budget: %v", elapsed)
 	}
 
 	must.Eq(t, expectMaxQueryTime, req.MaxQueryTime,
@@ -281,6 +274,69 @@ func TestRPCWriteRetryRequiresProofRequestWasNotSent(t *testing.T) {
 	}
 }
 
+type contextTestRPCPool struct {
+	rpcConnPool
+	calls atomic.Int32
+	call  func(context.Context) error
+}
+
+func (p *contextTestRPCPool) RPCContext(ctx context.Context, _ string, _ net.Addr, _ string, _, _ interface{}) error {
+	p.calls.Add(1)
+	return p.call(ctx)
+}
+
+func newContextTestClient(t *testing.T, hold time.Duration, connPool rpcConnPool) *Client {
+	t.Helper()
+	cfg := config.DefaultConfig()
+	cfg.RPCHoldTimeout = hold
+	logger := hclog.NewNullLogger()
+	shutdownCh := make(chan struct{})
+	c := &Client{config: cfg, connPool: connPool, shutdownCh: shutdownCh, rpcLogger: logger}
+	c.servers = servers.New(logger, shutdownCh, nil)
+	c.servers.SetServers(servers.Servers{{Addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 4647}}})
+	return c
+}
+
+func TestRPCFastFailuresShareAbsoluteDeadline(t *testing.T) {
+	p := &contextTestRPCPool{call: func(context.Context) error {
+		return fmt.Errorf("dial failed: %w", pool.ErrRPCNotSent)
+	}}
+	c := newContextTestClient(t, 40*time.Millisecond, p)
+
+	start := time.Now()
+	err := c.rpc(context.Background(), "Status.Leader", &structs.WriteRequest{}, new(string))
+	elapsed := time.Since(start)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected absolute deadline, got %v", err)
+	}
+	if elapsed > 300*time.Millisecond {
+		t.Fatalf("retries extended request budget: %v", elapsed)
+	}
+	if calls := p.calls.Load(); calls < 2 || calls > 100 {
+		t.Fatalf("unexpected retry count: %d", calls)
+	}
+}
+
+func TestRPCContextCancellationStopsEstablishedCall(t *testing.T) {
+	p := &contextTestRPCPool{call: func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+	c := newContextTestClient(t, 5*time.Second, p)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := c.rpc(ctx, "Status.Leader", &structs.GenericRequest{}, new(string))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected caller deadline, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+		t.Fatalf("caller cancellation was not prompt: %v", elapsed)
+	}
+	must.Eq(t, int32(1), p.calls.Load())
+}
+
 func TestRPCUnsentRequestTriesAlternateAfterDialBudget(t *testing.T) {
 	srv, cleanup := nomad.TestServer(t, nil)
 	defer cleanup()
@@ -291,7 +347,7 @@ func TestRPCUnsentRequestTriesAlternateAfterDialBudget(t *testing.T) {
 	bad := listener.Addr()
 	listener.Close()
 	cfg := config.DefaultConfig()
-	cfg.RPCHoldTimeout = time.Nanosecond
+	cfg.RPCHoldTimeout = time.Second
 	logger := hclog.NewNullLogger()
 	p := pool.NewPool(logger, time.Second, 2, nil, yamux.DefaultConfig(), time.Second)
 	defer p.Shutdown()
@@ -302,7 +358,7 @@ func TestRPCUnsentRequestTriesAlternateAfterDialBudget(t *testing.T) {
 	c.servers.SetServers(servers.Servers{first, &servers.Server{Addr: srv.GetConfig().RPCAddr}})
 	var reply string
 	// The transport retry decision must not depend on declaring this a read.
-	if err := c.rpc("Status.Leader", &structs.WriteRequest{Region: cfg.Region}, &reply); err != nil {
+	if err := c.rpc(context.Background(), "Status.Leader", &structs.WriteRequest{Region: cfg.Region}, &reply); err != nil {
 		t.Fatalf("unsent first attempt did not reach alternate: %v", err)
 	}
 }
