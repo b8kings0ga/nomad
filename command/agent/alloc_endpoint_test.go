@@ -34,6 +34,53 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type allocCancelRPCer struct {
+	RPCer
+	started chan context.Context
+}
+
+func (f *allocCancelRPCer) RPCContext(ctx context.Context, _ string, _, _ any) error {
+	f.started <- ctx
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (f *allocCancelRPCer) GetConfig() *Config {
+	return DefaultConfig()
+}
+
+func TestHTTP_AllocsListPropagatesCancellation(t *testing.T) {
+	fake := &allocCancelRPCer{started: make(chan context.Context, 1)}
+	server := &HTTPServer{agent: fake}
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/v1/allocations", nil).WithContext(ctx)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := server.AllocsRequest(httptest.NewRecorder(), req)
+		done <- err
+	}()
+
+	select {
+	case rpcCtx := <-fake.started:
+		if rpcCtx != req.Context() {
+			t.Fatal("HTTP request context was not passed to RPC")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RPC did not start")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context cancellation, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled HTTP RPC did not return")
+	}
+}
+
 func TestHTTP_AllocsList(t *testing.T) {
 	ci.Parallel(t)
 	httpTest(t, nil, func(s *TestAgent) {

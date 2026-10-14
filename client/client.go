@@ -4,6 +4,7 @@
 package client
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -162,7 +163,7 @@ type Client struct {
 	logger    hclog.InterceptLogger
 	rpcLogger hclog.Logger
 
-	connPool *pool.ConnPool
+	connPool rpcConnPool
 
 	// tlsWrap is used to wrap outbound connections using TLS. It should be
 	// accessed using the lock.
@@ -341,6 +342,14 @@ type Client struct {
 	// at the next heartbeat. It is set by an operator calling the node identity
 	// renew RPC method.
 	identityForceRenewal atomic.Bool
+}
+
+type rpcConnPool interface {
+	RPC(string, net.Addr, string, interface{}, interface{}) error
+	RPCContext(context.Context, string, net.Addr, string, interface{}, interface{}) error
+	SetConnListener(chan<- *pool.Conn)
+	ReloadTLS(tlsutil.RegionWrapper)
+	Shutdown() error
 }
 
 var (
@@ -2259,8 +2268,10 @@ func (c *Client) getRegistrationToken() string {
 
 // registerNode is used to register the node or update the registration
 func (c *Client) registerNode(authToken string) error {
+	node := c.Node().Copy()
+	setRatatoskrPackageForRegistration(node, ratatoskrPackageMarkerPath)
 	req := structs.NodeRegisterRequest{
-		Node: c.Node(),
+		Node: node,
 		WriteRequest: structs.WriteRequest{
 			Region:    c.Region(),
 			AuthToken: authToken,
