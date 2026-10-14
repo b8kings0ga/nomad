@@ -5,6 +5,7 @@ package pool
 
 import (
 	"container/list"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -320,6 +321,16 @@ func (p *ConnPool) SetConnListener(l chan<- *Conn) {
 // Acquire is used to get a connection that is
 // pooled or to return a new connection
 func (p *ConnPool) acquire(region string, addr net.Addr) (*Conn, error) {
+	return p.acquireContext(context.Background(), region, addr)
+}
+
+// acquireContext is acquire with cancellation for both dialing and callers
+// waiting behind another dial attempt.
+func (p *ConnPool) acquireContext(ctx context.Context, region string, addr net.Addr) (*Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	// Check to see if there's a pooled connection available. This is up
 	// here since it should the vastly more common case than the rest
 	// of the code here.
@@ -346,7 +357,7 @@ func (p *ConnPool) acquire(region string, addr net.Addr) (*Conn, error) {
 	// If we are the lead thread, make the new connection and then wake
 	// everybody else up to see if we got it.
 	if isLeadThread {
-		c, err := p.getNewConn(region, addr)
+		c, err := p.getNewConnContext(ctx, region, addr)
 		p.Lock()
 		delete(p.limiter, addr.String())
 		close(wait)
@@ -372,6 +383,8 @@ func (p *ConnPool) acquire(region string, addr net.Addr) (*Conn, error) {
 	// Otherwise, wait for the lead thread to attempt the connection
 	// and use what's in the pool at that point.
 	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	case <-p.shutdownCh:
 		return nil, fmt.Errorf("rpc error: shutdown")
 	case <-wait:
@@ -391,11 +404,23 @@ func (p *ConnPool) acquire(region string, addr net.Addr) (*Conn, error) {
 
 // getNewConn is used to return a new connection
 func (p *ConnPool) getNewConn(region string, addr net.Addr) (*Conn, error) {
+	return p.getNewConnContext(context.Background(), region, addr)
+}
+
+// getNewConnContext establishes a new pooled session while honoring the
+// request context throughout connection setup.
+func (p *ConnPool) getNewConnContext(ctx context.Context, region string, addr net.Addr) (*Conn, error) {
 	// Try to dial the conn
-	conn, err := net.DialTimeout("tcp", addr.String(), p.dialTimeout)
+	dialer := net.Dialer{Timeout: p.dialTimeout}
+	conn, err := dialer.DialContext(ctx, "tcp", addr.String())
 	if err != nil {
 		return nil, err
 	}
+	// Keep the callback bound to the underlying socket even if conn is later
+	// replaced by a TLS wrapper.
+	rawConn := conn
+	stopCancel := context.AfterFunc(ctx, func() { _ = rawConn.Close() })
+	defer stopCancel()
 
 	// Cast to TCPConn
 	if tcp, ok := conn.(*net.TCPConn); ok {
@@ -469,10 +494,14 @@ func (p *ConnPool) clearConn(conn *Conn) {
 
 // getClient is used to get a usable client for an address
 func (p *ConnPool) getRPCClient(region string, addr net.Addr) (*Conn, *StreamClient, error) {
+	return p.getRPCClientContext(context.Background(), region, addr)
+}
+
+func (p *ConnPool) getRPCClientContext(ctx context.Context, region string, addr net.Addr) (*Conn, *StreamClient, error) {
 	retries := 0
 START:
 	// Try to get a conn first
-	conn, err := p.acquire(region, addr)
+	conn, err := p.acquireContext(ctx, region, addr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get conn: %v", err)
 	}
@@ -516,15 +545,39 @@ func (p *ConnPool) StreamingRPC(region string, addr net.Addr) (net.Conn, error) 
 
 // RPC is used to make an RPC call to a remote host
 func (p *ConnPool) RPC(region string, addr net.Addr, method string, args interface{}, reply interface{}) error {
+	return p.RPCContext(context.Background(), region, addr, method, args, reply)
+}
+
+// RPCContext makes an RPC call bounded by ctx. Cancellation closes only the
+// request's yamux stream; the shared session remains available to other RPCs.
+func (p *ConnPool) RPCContext(ctx context.Context, region string, addr net.Addr, method string, args interface{}, reply interface{}) error {
 	// Get a usable client
-	conn, sc, err := p.getRPCClient(region, addr)
+	conn, sc, err := p.getRPCClientContext(ctx, region, addr)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return fmt.Errorf("rpc error: %w: %w", ErrRPCNotSent, err)
 	}
 	defer conn.releaseUse()
 
 	// Make the RPC call
-	err = msgpackrpc.CallWithCodec(sc.codec, method, args, reply)
+	done := make(chan error, 1)
+	go func() {
+		done <- msgpackrpc.CallWithCodec(sc.codec, method, args, reply)
+	}()
+
+	select {
+	case err = <-done:
+	case <-ctx.Done():
+		// yamux Close is a graceful half-close and deliberately leaves reads
+		// open until the peer responds. Expire this stream's I/O first so the
+		// synchronous codec call returns without resetting the shared session.
+		_ = sc.stream.SetDeadline(time.Now())
+		sc.Close()
+		<-done
+		return ctx.Err()
+	}
 	if err != nil {
 		sc.Close()
 
