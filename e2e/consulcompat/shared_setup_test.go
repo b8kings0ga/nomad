@@ -117,5 +117,16 @@ func startNomad(t *testing.T, consulConfig *testutil.Consul) *nomadapi.Client {
 	t.Logf("NOMAD_HTTP_ADDR: %s", nc.Address())
 
 	nc.SetSecretID(rootToken)
+	setStandardScheduler(t, nc)
 	return nc
+}
+
+// Consul compatibility tests exercise upstream Nomad integration behavior and
+// do not publish the capability records required by Mimir's default scheduler.
+func setStandardScheduler(t *testing.T, nc *nomadapi.Client) {
+	config, _, err := nc.Operator().SchedulerGetConfiguration(nil)
+	must.NoError(t, err)
+	config.SchedulerConfig.SchedulerAlgorithm = nomadapi.SchedulerAlgorithmBinpack
+	_, _, err = nc.Operator().SchedulerSetConfiguration(config.SchedulerConfig, nil)
+	must.NoError(t, err)
 }

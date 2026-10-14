@@ -240,7 +240,18 @@ func startNomad(t *testing.T, cb func(*testutil.TestServerConfig)) (func(), *nom
 	})
 	must.NoError(t, err, must.Sprint("unable to create nomad api client"))
 	nc.SetSecretID(bootstrapToken)
+	setStandardScheduler(t, nc)
 	return ts.Stop, nc
+}
+
+// Vault compatibility tests exercise upstream Nomad integration behavior and
+// do not publish the capability records required by Mimir's default scheduler.
+func setStandardScheduler(t *testing.T, nc *nomadapi.Client) {
+	config, _, err := nc.Operator().SchedulerGetConfiguration(nil)
+	must.NoError(t, err)
+	config.SchedulerConfig.SchedulerAlgorithm = nomadapi.SchedulerAlgorithmBinpack
+	_, _, err = nc.Operator().SchedulerSetConfiguration(config.SchedulerConfig, nil)
+	must.NoError(t, err)
 }
 
 func configureNomadVaultJWT(vc *vaultapi.Client) func(*testutil.TestServerConfig) {
