@@ -4,6 +4,7 @@
 package client
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -52,30 +53,42 @@ func (c *Client) StreamingRpcHandler(method string) (structs.StreamingRpcHandler
 
 // RPC is used to forward an RPC call to a nomad server, or fail if no servers.
 func (c *Client) RPC(method string, args any, reply any) error {
+	return c.RPCContext(context.Background(), method, args, reply)
+}
+
+// RPCContext forwards an RPC call while honoring cancellation from its caller.
+func (c *Client) RPCContext(ctx context.Context, method string, args any, reply any) error {
 	// Block if we have not yet registered the node, to enforce that we only
 	// send authenticated calls after the node has been registered
 	select {
 	case <-c.registeredCh:
+	case <-ctx.Done():
+		return ctx.Err()
 	case <-c.shutdownCh:
 		return nil
 	}
-	return c.rpc(method, args, reply)
+	return c.rpc(ctx, method, args, reply)
 }
 
 // UnauthenticatedRPC special-cases the Node.Register RPC call, forwarding the
 // call to a nomad server without blocking on the initial node registration.
 func (c *Client) UnauthenticatedRPC(method string, args any, reply any) error {
-	return c.rpc(method, args, reply)
+	return c.rpc(context.Background(), method, args, reply)
 }
 
 // rpc implements the forwarding of a RPC call to a nomad server, or fail if
 // no servers.
-func (c *Client) rpc(method string, args any, reply any) error {
+func (c *Client) rpc(ctx context.Context, method string, args any, reply any) error {
 
 	conf := c.GetConfig()
 
 	// Invoke the RPCHandler if it exists
 	if conf.RPCHandler != nil {
+		if handler, ok := conf.RPCHandler.(interface {
+			RPCContext(context.Context, string, interface{}, interface{}) error
+		}); ok {
+			return handler.RPCContext(ctx, method, args, reply)
+		}
 		return conf.RPCHandler.RPC(method, args, reply)
 	}
 
@@ -90,97 +103,91 @@ func (c *Client) rpc(method string, args any, reply any) error {
 	deadline = deadline.Add(conf.RPCHoldTimeout)
 
 	// If its a blocking query, allow the time specified by the request
-	if info, ok := args.(structs.RPCInfo); ok {
+	info, hasRPCInfo := args.(structs.RPCInfo)
+	if hasRPCInfo {
 		oldBlockTime := info.TimeToBlock()
 		deadline = deadline.Add(oldBlockTime)
 		defer info.SetTimeToBlock(oldBlockTime)
 	}
 
-	retriedUnsentAfterDeadline := false
+	requestCtx, cancelRequest := context.WithDeadline(ctx, deadline)
+	defer cancelRequest()
+	deadline, _ = requestCtx.Deadline()
 
-TRY:
 	var rpcErr error
-
-	server := c.servers.FindServer()
-	if server == nil {
-		rpcErr = noServersErr
-	} else {
-		// Make the request.
-		rpcErr = c.connPool.RPC(c.Region(), server.Addr, method, args, reply)
-
-		if rpcErr == nil {
-			c.fireRpcRetryWatcher()
-			return nil
+	for {
+		if err := requestCtx.Err(); err != nil {
+			return err
 		}
 
-		// If shutting down, exit without logging the error
+		server := c.servers.FindServer()
+		if server == nil {
+			rpcErr = noServersErr
+		} else {
+			// Make the request with the same absolute deadline on every attempt.
+			rpcErr = c.connPool.RPCContext(requestCtx, c.Region(), server.Addr, method, args, reply)
+
+			if rpcErr == nil {
+				c.fireRpcRetryWatcher()
+				return nil
+			}
+
+			// If shutting down, exit without logging the error.
+			select {
+			case <-c.shutdownCh:
+				return nil
+			default:
+			}
+
+			if err := requestCtx.Err(); err != nil {
+				return err
+			}
+
+			// Move off to another server, and see if we can retry.
+			c.rpcLogger.Error("error performing RPC to server", "error", rpcErr, "rpc", method, "server", server.Addr)
+			if rpcServerUnavailable(rpcErr) {
+				c.servers.NotifyFailedServer(server)
+			}
+
+			if !canRetry(args, rpcErr) {
+				c.rpcLogger.Error("error performing RPC to server which is not safe to automatically retry", "error", rpcErr, "rpc", method, "server", server.Addr)
+				return rpcErr
+			}
+		}
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return context.DeadlineExceeded
+		}
+
+		// Wait to avoid a thundering herd, but never beyond the original
+		// request budget.
+		stagger := helper.RandomStagger(conf.RPCHoldTimeout / structs.JitterFraction)
+		if stagger > remaining {
+			stagger = remaining
+		}
+		timer, cancelTimer := helper.NewSafeTimer(stagger)
 		select {
+		case <-timer.C:
+			cancelTimer()
+		case <-requestCtx.Done():
+			cancelTimer()
+			return requestCtx.Err()
 		case <-c.shutdownCh:
+			cancelTimer()
 			return nil
-		default:
 		}
 
-		// Move off to another server, and see if we can retry.
-		c.rpcLogger.Error("error performing RPC to server", "error", rpcErr, "rpc", method, "server", server.Addr)
-		if rpcServerUnavailable(rpcErr) {
-			c.servers.NotifyFailedServer(server)
-		}
-
-		if !canRetry(args, rpcErr) {
-			c.rpcLogger.Error("error performing RPC to server which is not safe to automatically retry", "error", rpcErr, "rpc", method, "server", server.Addr)
-			return rpcErr
-		}
-	}
-
-	if time.Now().After(deadline) {
-		// Dialing can consume the hold budget before the first request is sent.
-		// Permit one final attempt on a different server only with local proof
-		// that no RPC was sent. Each connection remains dial-timeout bounded;
-		// an ambiguous response or a second failure never extends this budget.
-		if !retriedUnsentAfterDeadline && errors.Is(rpcErr, pool.ErrRPCNotSent) && server != nil {
-			if next := c.servers.FindServer(); next != nil && next.Addr.String() != server.Addr.String() {
-				retriedUnsentAfterDeadline = true
-				goto TRY
+		// Keep a blocking query inside the same absolute deadline rather than
+		// recursively creating a fresh hold budget.
+		if hasRPCInfo && info.TimeToBlock() > 0 {
+			remaining = time.Until(deadline)
+			if remaining < 0 {
+				remaining = 0
 			}
+			info.SetTimeToBlock(remaining)
 		}
-		// Blocking queries are tricky.  jitters and rpcholdtimes in multiple
-		// places can result in our server call taking longer than we wanted it
-		// to. For example: a block time of 5s may easily turn into the server
-		// blocking for 10s since it applies its own RPCHoldTime. If the server
-		// dies at t=7s we still want to retry so before we give up on blocking
-		// queries make one last attempt for an immediate answer
-		if info, ok := args.(structs.RPCInfo); ok && info.TimeToBlock() > 0 {
-			info.SetTimeToBlock(0)
-			return c.RPC(method, args, reply)
-		}
-		c.rpcLogger.Error("error performing RPC to server, deadline exceeded, cannot retry", "error", rpcErr, "rpc", method)
-		return rpcErr
 	}
-
-	// Wait to avoid thundering herd
-	timer, cancel := helper.NewSafeTimer(helper.RandomStagger(conf.RPCHoldTimeout / structs.JitterFraction))
-	defer cancel()
-
-	select {
-	case <-timer.C:
-		// If we are going to retry a blocking query we need to update the time
-		// to block so it finishes by our deadline.
-
-		if info, ok := args.(structs.RPCInfo); ok && info.TimeToBlock() > 0 {
-			newBlockTime := time.Until(deadline)
-			// We can get below 0 here on slow computers because we slept for
-			// jitter so at least try to get an immediate response
-			if newBlockTime < 0 {
-				newBlockTime = 0
-			}
-			info.SetTimeToBlock(newBlockTime)
-			return c.RPC(method, args, reply)
-		}
-
-		goto TRY
-	case <-c.shutdownCh:
-	}
-	return rpcErr
 }
 
 // A remote application rejection proves that the server answered. Treating

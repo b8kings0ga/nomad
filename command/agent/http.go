@@ -89,6 +89,7 @@ type handlerByteFn func(resp http.ResponseWriter, req *http.Request) ([]byte, er
 
 type RPCer interface {
 	RPC(string, any, any) error
+	RPCContext(context.Context, string, any, any) error
 	Server() *nomad.Server
 	Client() *client.Client
 	Stats() map[string]map[string]string

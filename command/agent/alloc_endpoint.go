@@ -59,7 +59,7 @@ func (s *HTTPServer) AllocsRequest(resp http.ResponseWriter, req *http.Request) 
 	}
 
 	var out structs.AllocListResponse
-	if err := s.agent.RPC("Alloc.List", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Alloc.List", &args, &out); err != nil {
 		return nil, err
 	}
 
