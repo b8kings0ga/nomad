@@ -1,8 +1,12 @@
+// Copyright IBM Corp. 2015, 2026
+// SPDX-License-Identifier: BUSL-1.1
+
 package client
 
 import (
-	"github.com/hashicorp/nomad/client/servers"
 	"testing"
+
+	"github.com/hashicorp/nomad/client/servers"
 )
 
 func TestAppendBootstrapServersKeepsAlternateAddress(t *testing.T) {
