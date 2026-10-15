@@ -51,7 +51,7 @@ func (s *HTTPServer) OperatorRaftConfiguration(resp http.ResponseWriter, req *ht
 	}
 
 	var reply structs.RaftConfigurationResponse
-	if err := s.agent.RPC("Operator.RaftGetConfiguration", &args, &reply); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Operator.RaftGetConfiguration", &args, &reply); err != nil {
 		return nil, err
 	}
 
@@ -150,7 +150,7 @@ func (s *HTTPServer) OperatorAutopilotConfiguration(resp http.ResponseWriter, re
 		}
 
 		var reply structs.AutopilotConfig
-		if err := s.agent.RPC("Operator.AutopilotGetConfiguration", &args, &reply); err != nil {
+		if err := s.agent.RPCContext(req.Context(), "Operator.AutopilotGetConfiguration", &args, &reply); err != nil {
 			return nil, err
 		}
 
@@ -228,7 +228,7 @@ func (s *HTTPServer) OperatorServerHealth(resp http.ResponseWriter, req *http.Re
 	}
 
 	var reply structs.OperatorHealthReply
-	if err := s.agent.RPC("Operator.ServerHealth", &args, &reply); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Operator.ServerHealth", &args, &reply); err != nil {
 		return nil, err
 	}
 
@@ -289,7 +289,7 @@ func (s *HTTPServer) schedulerGetConfig(resp http.ResponseWriter, req *http.Requ
 	}
 
 	var reply structs.SchedulerConfigurationResponse
-	if err := s.agent.RPC("Operator.SchedulerGetConfiguration", &args, &reply); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Operator.SchedulerGetConfiguration", &args, &reply); err != nil {
 		return nil, err
 	}
 	setMeta(resp, &reply.QueryMeta)

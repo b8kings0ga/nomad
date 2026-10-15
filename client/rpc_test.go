@@ -337,6 +337,21 @@ func TestRPCContextCancellationStopsEstablishedCall(t *testing.T) {
 	must.Eq(t, int32(1), p.calls.Load())
 }
 
+func TestRPCShutdownPoolIsNotRetried(t *testing.T) {
+	p := &contextTestRPCPool{call: func(context.Context) error {
+		return fmt.Errorf("%w: %w", pool.ErrRPCNotSent, pool.ErrPoolShutdown)
+	}}
+	c := newContextTestClient(t, time.Second, p)
+	err := c.rpc(context.Background(), "Status.Leader", &structs.GenericRequest{}, new(string))
+	if !errors.Is(err, pool.ErrPoolShutdown) {
+		t.Fatalf("pool shutdown was hidden by retries: %v", err)
+	}
+	if rpcServerUnavailable(err) {
+		t.Fatal("local pool shutdown marked the remote server unavailable")
+	}
+	must.Eq(t, int32(1), p.calls.Load())
+}
+
 func TestRPCUnsentRequestTriesAlternateAfterDialBudget(t *testing.T) {
 	srv, cleanup := nomad.TestServer(t, nil)
 	defer cleanup()

@@ -20,7 +20,7 @@ func (s *HTTPServer) StatusLeaderRequest(resp http.ResponseWriter, req *http.Req
 	}
 
 	var leader string
-	if err := s.agent.RPC("Status.Leader", &args, &leader); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Status.Leader", &args, &leader); err != nil {
 		return nil, err
 	}
 	return leader, nil
@@ -37,7 +37,7 @@ func (s *HTTPServer) StatusPeersRequest(resp http.ResponseWriter, req *http.Requ
 	}
 
 	var peers []string
-	if err := s.agent.RPC("Status.Peers", &args, &peers); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Status.Peers", &args, &peers); err != nil {
 		return nil, err
 	}
 	if len(peers) == 0 {
