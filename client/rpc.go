@@ -194,12 +194,20 @@ func (c *Client) rpc(ctx context.Context, method string, args any, reply any) er
 // permission/not-found responses as connection failures rotates away from a
 // healthy route and can select an unreachable advertised address instead.
 func rpcServerUnavailable(err error) bool {
+	if errors.Is(err, pool.ErrPoolShutdown) {
+		return false
+	}
 	var serverError rpc.ServerError
 	return !errors.As(err, &serverError) || structs.IsErrNoLeader(err) || helper.IsErrEOF(err)
 }
 
 // canRetry returns true if the given situation is safe for a retry.
 func canRetry(args any, err error) bool {
+	// Unsent means safe to replay, not necessarily recoverable. A closed pool
+	// cannot be revived by repeating the request or rotating server addresses.
+	if errors.Is(err, pool.ErrPoolShutdown) {
+		return false
+	}
 	// The connection pool proves that no RPC bytes were sent. This includes
 	// concurrent callers waiting on a failed initial connection during restore.
 	if errors.Is(err, pool.ErrRPCNotSent) {

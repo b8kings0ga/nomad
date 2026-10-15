@@ -113,6 +113,15 @@ func TestRPCConnectionFailureMarksRequestNotSent(t *testing.T) {
 	}
 }
 
+func TestRPCShutdownPreservesCause(t *testing.T) {
+	p := newTestPool(t)
+	must.NoError(t, p.Shutdown())
+	err := p.RPC("global", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 4647}, "Status.Leader", nil, nil)
+	if !errors.Is(err, ErrRPCNotSent) || !errors.Is(err, ErrPoolShutdown) {
+		t.Fatalf("shutdown must preserve both unsent proof and permanent cause: %v", err)
+	}
+}
+
 func TestConnPoolShutdownRejectsConnections(t *testing.T) {
 	for _, inFlight := range []bool{false, true} {
 		t.Run(fmt.Sprintf("in_flight=%t", inFlight), func(t *testing.T) {

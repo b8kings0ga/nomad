@@ -24,17 +24,17 @@ CGO_ENABLED=0 go test -tags "${TAGS}" -run '^TestMinimal' .
 
 echo '==> Running focused ordinary-build regression tests'
 CI=true CGO_ENABLED=1 go test -race ./helper/pool
-CI=true CGO_ENABLED=0 go test ./client -run '^(TestRPC|TestNodeMeta_)' -timeout=5m
+CI=true CGO_ENABLED=0 go test ./client -run '^(TestRPC|TestNodeMeta_|TestClient_(HealthyHeartbeatIgnoresRPCSuccess|FailedHeartbeatWakesOnRPCSuccess|HeartbeatNoLeaderBackoff))' -timeout=5m
 CI=true CGO_ENABLED=0 go test ./nomad -run '^(TestRPCContext|TestClientEndpoint_ShouldCreateNodeEval|TestCoreScheduler_EvalGC)' -timeout=5m
 CI=true CGO_ENABLED=0 go test ./scheduler/feasible -run 'TestMimir' -timeout=2m
-CI=true CGO_ENABLED=0 go test ./command/agent -run '^TestHTTP_(AllocsListPropagatesCancellation|ReadQueriesPropagateCancellation)$' -timeout=2m
+CI=true CGO_ENABLED=0 go test ./command/agent -run '^TestHTTP_(AllocsListPropagatesCancellation|ReadQueriesPropagateCancellation|UnavailableNodePoolRoutes)$' -timeout=2m
 CI=true CGO_ENABLED=0 go test \
   ./nomad/structs/config \
   ./client/serviceregistration \
   ./client/consul \
   ./client/vaultclient \
   ./client/allochealth
-CI=true CGO_ENABLED=0 go test -run '^$' ./client/allocrunner/taskrunner
+CI=true CGO_ENABLED=0 go test -run '^TestIntegrationVaultHookTaskContext$' ./client/allocrunner/taskrunner
 
 echo '==> Running focused nomad_min taskrunner regression tests'
 CGO_ENABLED=0 go build -tags "${TAGS}" ./client/allocrunner/taskrunner

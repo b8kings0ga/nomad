@@ -5,8 +5,10 @@
 
 package agent
 
-func registerEventEndpoint(*HTTPServer)         {}
-func registerNodePoolEndpoints(*HTTPServer)     {}
+func registerEventEndpoint(*HTTPServer) {}
+func registerNodePoolEndpoints(s *HTTPServer) {
+	registerUnavailableNodePoolEndpoints(s.mux)
+}
 func registerCSIEndpoints(*HTTPServer)          {}
 func registerEnterpriseEndpoints(*HTTPServer)   {}
 func registerExternalAuthEndpoints(*HTTPServer) {}
