@@ -166,16 +166,18 @@ func (c *Conn) AcceptStream() (net.Conn, error) {
 type incomingStream struct {
 	*yamux.Stream
 
-	parent *Conn
+	parent    *Conn
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func (s *incomingStream) Close() error {
-	err := s.Stream.Close()
-
-	// always release parent even if error
-	s.parent.releaseUse()
-
-	return err
+	s.closeOnce.Do(func() {
+		s.closeErr = s.Stream.Close()
+		// Release the parent exactly once, even when closing the stream fails.
+		s.parent.releaseUse()
+	})
+	return s.closeErr
 }
 
 // ConnPool is used to maintain a connection pool to other
@@ -530,17 +532,19 @@ func (p *ConnPool) StreamingRPC(region string, addr net.Addr) (net.Conn, error) 
 		return nil, fmt.Errorf("failed to get conn: %v", err)
 	}
 
-	s, err := conn.session.Open()
+	s, err := conn.session.OpenStream()
 	if err != nil {
+		conn.releaseUse()
 		return nil, fmt.Errorf("failed to open a streaming connection: %v", err)
 	}
 
+	stream := &incomingStream{Stream: s, parent: conn}
 	if _, err := s.Write([]byte{byte(RpcStreaming)}); err != nil {
-		conn.Close()
+		stream.Close()
 		return nil, err
 	}
 
-	return s, nil
+	return stream, nil
 }
 
 // RPC is used to make an RPC call to a remote host
