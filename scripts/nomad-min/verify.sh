@@ -23,17 +23,17 @@ echo '==> Compiling nomad_min'
 CGO_ENABLED=0 go test -tags "${TAGS}" -run '^TestMinimal' .
 
 echo '==> Running focused ordinary-build regression tests'
-CGO_ENABLED=0 go test \
+CI=true CGO_ENABLED=0 go test \
   ./nomad/structs/config \
   ./client/serviceregistration \
   ./client/consul \
   ./client/vaultclient \
   ./client/allochealth
-CGO_ENABLED=0 go test -run '^$' ./client/allocrunner/taskrunner
+CI=true CGO_ENABLED=0 go test -run '^$' ./client/allocrunner/taskrunner
 
 echo '==> Running focused nomad_min taskrunner regression tests'
 CGO_ENABLED=0 go build -tags "${TAGS}" ./client/allocrunner/taskrunner
-CGO_ENABLED=0 go test -tags "${TAGS}" \
+CI=true CGO_ENABLED=0 go test -tags "${TAGS}" \
   ./client/allocrunner/taskrunner/getter \
   ./client/allocrunner/taskrunner/template
 
@@ -41,9 +41,9 @@ CGO_ENABLED=0 go test -tags "${TAGS}" \
 # on macOS. Run them only in environments that deliberately provide Consul;
 # otherwise retain the ordinary-build compile regression.
 if [[ "$(go env GOOS)" == "linux" ]] && command -v consul >/dev/null 2>&1; then
-  CGO_ENABLED=0 go test ./command/agent/consul
+  CI=true CGO_ENABLED=0 go test ./command/agent/consul
 else
-  CGO_ENABLED=0 go test -run '^$' ./command/agent/consul
+  CI=true CGO_ENABLED=0 go test -run '^$' ./command/agent/consul
 fi
 
 echo '==> Checking the linux/amd64 nomad_min dependency graph'

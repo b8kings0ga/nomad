@@ -616,22 +616,12 @@ func (e *Encrypter) generateCipher(rootKey *structs.UnwrappedRootKey) (*cipherSe
 	if rootKey == nil || rootKey.Meta == nil {
 		return nil, fmt.Errorf("missing metadata")
 	}
-	var wrapper kms.Wrapper
-
-	switch rootKey.Meta.Algorithm {
-	case structs.EncryptionAlgorithmAES256GCM:
-		wrapper = aead.NewWrapper()
-		_, err := wrapper.SetConfig(context.Background(),
-			aead.WithAeadType(kms.AeadTypeAesGcm),
-			aead.WithHashType(kms.HashTypeSha256),
-			aead.WithKey(rootKey.Key),
-			kms.WithKeyId(rootKey.Meta.KeyID),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("could not configure cipher: %w", err)
-		}
-	default:
+	if rootKey.Meta.Algorithm != structs.EncryptionAlgorithmAES256GCM {
 		return nil, fmt.Errorf("invalid algorithm %s", rootKey.Meta.Algorithm)
+	}
+	wrapper, err := newAEADWrapper(rootKey.Meta.KeyID, rootKey.Key)
+	if err != nil {
+		return nil, fmt.Errorf("could not configure cipher: %w", err)
 	}
 
 	ed25519Key := ed25519.NewKeyFromSeed(rootKey.Key)
