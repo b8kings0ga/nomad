@@ -7231,6 +7231,13 @@ func (tg *TaskGroup) Validate(j *Job) error {
 		if err := tg.EphemeralDisk.Validate(); err != nil {
 			mErr = multierror.Append(mErr, err)
 		}
+		if tg.EphemeralDisk.SizeMB == 0 {
+			for _, task := range tg.Tasks {
+				if task.Driver != "mimc" || task.Config["mode"] != "sandbox" || task.LogConfig == nil || !task.LogConfig.Disabled {
+					mErr = multierror.Append(mErr, fmt.Errorf("zero ephemeral disk requires sandboxed mimc tasks with local logs disabled"))
+				}
+			}
+		}
 	} else {
 		mErr = multierror.Append(mErr, fmt.Errorf("Task Group %v should have an ephemeral disk object", tg.Name))
 	}
@@ -7913,7 +7920,7 @@ func (l *LogConfig) Validate(disk *EphemeralDisk) error {
 	if l.MaxFileSizeMB < 1 {
 		mErr.Errors = append(mErr.Errors, fmt.Errorf("minimum file size is 1MB; got %d", l.MaxFileSizeMB))
 	}
-	if disk != nil {
+	if disk != nil && !l.Disabled {
 		logUsage := (l.MaxFiles * l.MaxFileSizeMB)
 		if disk.SizeMB <= logUsage {
 			mErr.Errors = append(mErr.Errors,
@@ -10446,6 +10453,13 @@ func (d *EphemeralDisk) Equal(o *EphemeralDisk) bool {
 
 // Validate validates EphemeralDisk
 func (d *EphemeralDisk) Validate() error {
+	// Stateless mimc groups may opt out; TaskGroup validates their tasks below.
+	if d.SizeMB == 0 {
+		if d.Sticky || d.Migrate {
+			return fmt.Errorf("zero disk cannot be sticky or migrated")
+		}
+		return nil
+	}
 	if d.SizeMB < 10 {
 		return fmt.Errorf("minimum DiskMB value is 10; got %d", d.SizeMB)
 	}
