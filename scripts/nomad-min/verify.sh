@@ -34,7 +34,7 @@ CI=true CGO_ENABLED=0 go test \
   ./client/consul \
   ./client/vaultclient \
   ./client/allochealth
-CI=true CGO_ENABLED=0 go test -run '^$' ./client/allocrunner/taskrunner
+CI=true CGO_ENABLED=0 go test -run '^TestIntegrationVaultHookTaskContext$' ./client/allocrunner/taskrunner
 
 echo '==> Running focused nomad_min taskrunner regression tests'
 CGO_ENABLED=0 go build -tags "${TAGS}" ./client/allocrunner/taskrunner

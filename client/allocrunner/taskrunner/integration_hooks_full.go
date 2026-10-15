@@ -15,6 +15,7 @@ func appendIntegrationTokenHooks(hooks []interfaces.TaskHook, tr *TaskRunner, ta
 	hooks = append(hooks, newConsulHook(logger, tr))
 	if task.Vault != nil && tr.vaultClientFunc != nil {
 		hooks = append(hooks, newVaultHook(&vaultHookConfig{
+			taskCtx:    tr.killCtx,
 			vaultBlock: task.Vault, vaultConfigsFunc: tr.clientConfig.GetVaultConfigs,
 			clientFunc: tr.vaultClientFunc, events: tr, lifecycle: tr, updater: tr,
 			logger: logger, alloc: tr.Alloc(), task: tr.Task(), widmgr: tr.widmgr,
