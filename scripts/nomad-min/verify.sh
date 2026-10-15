@@ -44,7 +44,7 @@ CI=true CGO_ENABLED=0 go test \
 CI=true CGO_ENABLED=0 go test ./client/allocdir -run '^(TestAllocDir_Move|TestDropDirPermissions_Symlink)' -timeout=2m
 CI=true CGO_ENABLED=0 go test ./helper/escapingfs -run '^TestChildEscapesParentDir$' -timeout=2m
 CI=true CGO_ENABLED=0 go test ./client/logmon -run '^TestLogmon_(Start_rotate|Start_restart_flusheslogs|NewError)$' -timeout=2m
-CI=true CGO_ENABLED=0 go test ./client/allocrunner/taskrunner -run '^TestTaskRunner_(DispatchHook|LogmonHook)' -timeout=2m
+CI=true CGO_ENABLED=0 go test ./client/allocrunner/taskrunner -run '^(TestTaskRunner_(DispatchHook|LogmonHook)|TestIntegrationVaultHookTaskContext$)' -timeout=2m
 
 echo '==> Running focused nomad_min taskrunner regression tests'
 CGO_ENABLED=0 go build -tags "${TAGS}" ./client/allocrunner/taskrunner
