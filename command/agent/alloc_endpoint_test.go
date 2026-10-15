@@ -82,13 +82,19 @@ func TestHTTP_AllocsListPropagatesCancellation(t *testing.T) {
 }
 
 func TestHTTP_ReadQueriesPropagateCancellation(t *testing.T) {
-	for _, name := range []string{"nodes", "node-allocations", "jobs", "deployments", "services"} {
+	for _, name := range []string{"nodes", "node-allocations", "jobs", "deployments", "services",
+		"evaluations", "eval-allocations", "eval-query", "eval-count", "leader", "peers",
+		"raft-config", "autopilot-config", "server-health", "scheduler-config",
+		"search", "fuzzy-search", "job-actions", "job-submission", "job-services"} {
 		t.Run(name, func(t *testing.T) {
 			fake := &allocCancelRPCer{started: make(chan context.Context, 1)}
 			server := &HTTPServer{agent: fake}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			req := httptest.NewRequest(http.MethodGet, "/v1/"+name, nil).WithContext(ctx)
+			if name == "search" || name == "fuzzy-search" {
+				req = httptest.NewRequest(http.MethodPost, "/v1/"+name, strings.NewReader(`{"Prefix":"test","Text":"test","Context":"jobs"}`)).WithContext(ctx)
+			}
 			done := make(chan error, 1)
 			go func() {
 				var err error
@@ -104,6 +110,36 @@ func TestHTTP_ReadQueriesPropagateCancellation(t *testing.T) {
 					_, err = server.DeploymentsRequest(w, req)
 				case "services":
 					_, err = server.ServiceRegistrationListRequest(w, req)
+				case "evaluations":
+					_, err = server.EvalsRequest(w, req)
+				case "eval-allocations":
+					_, err = server.evalAllocations(w, req, "eval-a")
+				case "eval-query":
+					_, err = server.evalQuery(w, req, "eval-a")
+				case "eval-count":
+					_, err = server.EvalsCountRequest(w, req)
+				case "leader":
+					_, err = server.StatusLeaderRequest(w, req)
+				case "peers":
+					_, err = server.StatusPeersRequest(w, req)
+				case "raft-config":
+					_, err = server.OperatorRaftConfiguration(w, req)
+				case "autopilot-config":
+					_, err = server.OperatorAutopilotConfiguration(w, req)
+				case "server-health":
+					_, err = server.OperatorServerHealth(w, req)
+				case "scheduler-config":
+					_, err = server.OperatorSchedulerConfiguration(w, req)
+				case "search":
+					_, err = server.SearchRequest(w, req)
+				case "fuzzy-search":
+					_, err = server.FuzzySearchRequest(w, req)
+				case "job-actions":
+					_, err = server.jobActions(w, req, "job-a")
+				case "job-submission":
+					_, err = server.jobSubmissionQuery(w, req, "job-a", 0)
+				case "job-services":
+					_, err = server.jobServiceRegistrations(w, req, "job-a")
 				}
 				done <- err
 			}()

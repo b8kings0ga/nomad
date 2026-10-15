@@ -28,6 +28,10 @@ import (
 // Callers may retry these failures without replaying an ambiguous mutation.
 var ErrRPCNotSent = errors.New("RPC request was not sent")
 
+// ErrPoolShutdown identifies a permanently closed pool. Retrying against another
+// address cannot recover it; the owner must create a new pool instead.
+var ErrPoolShutdown = errors.New("rpc error: shutdown")
+
 // defaultDialTimeout is the fallback timeout used when a ConnPool is
 // constructed without an explicit dial timeout.
 const defaultDialTimeout = 10 * time.Second
@@ -379,7 +383,7 @@ func (p *ConnPool) acquireContext(ctx context.Context, region string, addr net.A
 	p.Lock()
 	if p.shutdown {
 		p.Unlock()
-		return nil, fmt.Errorf("rpc error: shutdown")
+		return nil, ErrPoolShutdown
 	}
 	c := p.pool[addr.String()]
 	if c != nil {
@@ -416,7 +420,7 @@ func (p *ConnPool) acquireContext(ctx context.Context, region string, addr net.A
 		if p.shutdown {
 			p.Unlock()
 			c.Close()
-			return nil, fmt.Errorf("rpc error: shutdown")
+			return nil, ErrPoolShutdown
 		}
 		if c.tlsGeneration != p.tlsGeneration {
 			p.Unlock()
@@ -444,7 +448,7 @@ func (p *ConnPool) acquireContext(ctx context.Context, region string, addr net.A
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-p.shutdownCh:
-		return nil, fmt.Errorf("rpc error: shutdown")
+		return nil, ErrPoolShutdown
 	case <-wait:
 	}
 
@@ -568,7 +572,7 @@ START:
 	// Try to get a conn first
 	conn, err := p.acquireContext(ctx, region, addr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get conn: %v", err)
+		return nil, nil, fmt.Errorf("failed to get conn: %w", err)
 	}
 
 	// Get a client
@@ -582,7 +586,7 @@ START:
 			retries++
 			goto START
 		}
-		return nil, nil, fmt.Errorf("failed to start stream: %v", err)
+		return nil, nil, fmt.Errorf("failed to start stream: %w", err)
 	}
 	return conn, client, nil
 }
