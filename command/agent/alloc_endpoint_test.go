@@ -81,6 +81,53 @@ func TestHTTP_AllocsListPropagatesCancellation(t *testing.T) {
 	}
 }
 
+func TestHTTP_ReadQueriesPropagateCancellation(t *testing.T) {
+	for _, name := range []string{"nodes", "node-allocations", "jobs", "deployments", "services"} {
+		t.Run(name, func(t *testing.T) {
+			fake := &allocCancelRPCer{started: make(chan context.Context, 1)}
+			server := &HTTPServer{agent: fake}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			req := httptest.NewRequest(http.MethodGet, "/v1/"+name, nil).WithContext(ctx)
+			done := make(chan error, 1)
+			go func() {
+				var err error
+				w := httptest.NewRecorder()
+				switch name {
+				case "nodes":
+					_, err = server.NodesRequest(w, req)
+				case "node-allocations":
+					_, err = server.nodeAllocations(w, req, "node-a")
+				case "jobs":
+					_, err = server.JobsRequest(w, req)
+				case "deployments":
+					_, err = server.DeploymentsRequest(w, req)
+				case "services":
+					_, err = server.ServiceRegistrationListRequest(w, req)
+				}
+				done <- err
+			}()
+			select {
+			case rpcCtx := <-fake.started:
+				if rpcCtx != req.Context() {
+					t.Fatal("request context was not propagated")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("query did not start")
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("error=%v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("canceled query did not finish")
+			}
+		})
+	}
+}
+
 func TestHTTP_AllocsList(t *testing.T) {
 	ci.Parallel(t)
 	httpTest(t, nil, func(s *TestAgent) {

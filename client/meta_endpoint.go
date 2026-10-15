@@ -6,6 +6,7 @@ package client
 import (
 	"maps"
 	"net/http"
+	"reflect"
 	"time"
 
 	metrics "github.com/hashicorp/go-metrics"
@@ -37,8 +38,23 @@ func (n *NodeMeta) Apply(args *structs.NodeMetaApplyRequest, reply *structs.Node
 
 	var stateErr error
 	var dyn map[string]*string
+	var changed bool
 
 	newNode := n.c.UpdateNode(func(node *structs.Node) {
+		dyn = maps.Clone(n.c.metaDynamic)
+		maps.Copy(dyn, args.Meta)
+		// Keep static-key tombstones so removals survive a client restart.
+		for k, v := range args.Meta {
+			if _, static := n.c.metaStatic[k]; v == nil && !static {
+				delete(dyn, k)
+			}
+		}
+		changed = !reflect.DeepEqual(dyn, n.c.metaDynamic) ||
+			(args.Capability != nil && !reflect.DeepEqual(args.Capability, node.MimirCapability)) ||
+			(args.Health != nil && !reflect.DeepEqual(args.Health, node.MimirHealth))
+		if !changed {
+			return
+		}
 		if args.Capability != nil {
 			if stateErr = n.c.stateDB.PutMimirCapability(args.Capability); stateErr != nil {
 				return
@@ -53,22 +69,6 @@ func (n *NodeMeta) Apply(args *structs.NodeMetaApplyRequest, reply *structs.Node
 			}
 			node.MimirHealth = args.Health.Copy()
 		}
-		// First update the Client's state store. This must be done
-		// atomically with updating the metadata inmemory to avoid
-		// bad interleaving between concurrent updates.
-		dyn = maps.Clone(n.c.metaDynamic)
-		maps.Copy(dyn, args.Meta)
-
-		// Delete null values from the dynamic metadata if they are also not
-		// static. Static null values must be kept so their removal is
-		// persisted in client state.
-		for k, v := range args.Meta {
-			_, static := n.c.metaStatic[k]
-			if v == nil && !static {
-				delete(dyn, k)
-			}
-		}
-
 		if stateErr = n.c.stateDB.PutNodeMeta(dyn); stateErr != nil {
 			return
 		}
@@ -93,7 +93,9 @@ func (n *NodeMeta) Apply(args *structs.NodeMetaApplyRequest, reply *structs.Node
 	}
 
 	// Trigger an async node update
-	n.c.updateNode()
+	if changed {
+		n.c.updateNode()
+	}
 
 	reply.Meta = newNode.Meta
 	reply.Dynamic = dyn

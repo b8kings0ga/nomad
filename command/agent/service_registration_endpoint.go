@@ -31,7 +31,7 @@ func (s *HTTPServer) ServiceRegistrationListRequest(
 
 	// Perform the RPC request.
 	var reply structs.ServiceRegistrationListResponse
-	if err := s.agent.RPC(structs.ServiceRegistrationListRPCMethod, &args, &reply); err != nil {
+	if err := s.agent.RPCContext(req.Context(), structs.ServiceRegistrationListRPCMethod, &args, &reply); err != nil {
 		return nil, err
 	}
 
@@ -102,7 +102,7 @@ func (s *HTTPServer) serviceGetRequest(
 	}
 
 	var reply structs.ServiceRegistrationByNameResponse
-	if err := s.agent.RPC(structs.ServiceRegistrationGetServiceRPCMethod, &args, &reply); err != nil {
+	if err := s.agent.RPCContext(req.Context(), structs.ServiceRegistrationGetServiceRPCMethod, &args, &reply); err != nil {
 		return nil, err
 	}
 	setMeta(resp, &reply.QueryMeta)

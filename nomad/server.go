@@ -1944,6 +1944,26 @@ func (s *Server) RPC(method string, args any, reply any) error {
 	return codec.Err
 }
 
+// RPCContext carries cancellation into local blocking read queries.
+func (s *Server) RPCContext(ctx context.Context, method string, args any, reply any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if query, ok := args.(interface {
+		QueryContext() context.Context
+		SetQueryContext(context.Context)
+	}); ok {
+		previous := query.QueryContext()
+		query.SetQueryContext(ctx)
+		defer query.SetQueryContext(previous)
+	}
+	err := s.RPC(method, args, reply)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
+}
+
 // StreamingRpcHandler is used to make a streaming RPC call.
 func (s *Server) StreamingRpcHandler(method string) (structs.StreamingRpcHandler, error) {
 	return s.streamingRpcs.GetHandler(method)

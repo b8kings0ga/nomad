@@ -852,6 +852,16 @@ func mimirUsage(allocs []*structs.Allocation) structs.MimirResourceUsage {
 			usage.RAMBytes += float64(task.Memory.MemoryMB) * (1 << 20)
 		}
 		usage.DiskBytes += float64(alloc.AllocatedResources.Shared.DiskMB) * (1 << 20)
+		if alloc.Job != nil {
+			if group := alloc.Job.LookupTaskGroup(alloc.TaskGroup); group != nil && group.MimirRequirement != nil {
+				q := group.MimirRequirement
+				usage.MemoryMMU += q.MemoryBandwidthMMU
+				usage.DiskReadIOPS += q.DiskReadIOPS
+				usage.DiskWriteIOPS += q.DiskWriteIOPS
+				usage.NetworkUpload += q.NetworkUploadBytesPerSecond
+				usage.NetworkDownload += q.NetworkDownloadBytesPerSecond
+			}
+		}
 	}
 	return usage
 }

@@ -24,6 +24,27 @@ var testSchedulerConfig = &structs.SchedulerConfiguration{
 	MemoryOversubscriptionEnabled: true,
 }
 
+func TestMimirUsageIncludesReservedThroughput(t *testing.T) {
+	q := &structs.MimirWorkloadRequirement{
+		MemoryBandwidthMMU: 3, DiskReadIOPS: 5, DiskWriteIOPS: 7,
+		NetworkUploadBytesPerSecond: 11, NetworkDownloadBytesPerSecond: 13,
+	}
+	alloc := &structs.Allocation{
+		TaskGroup:          "work",
+		Job:                &structs.Job{TaskGroups: []*structs.TaskGroup{{Name: "work", MimirRequirement: q}}},
+		AllocatedResources: &structs.AllocatedResources{},
+	}
+	usage := mimirUsage([]*structs.Allocation{alloc, alloc})
+	must.Eq(t, float64(6), usage.MemoryMMU)
+	must.Eq(t, float64(10), usage.DiskReadIOPS)
+	must.Eq(t, float64(14), usage.DiskWriteIOPS)
+	must.Eq(t, float64(22), usage.NetworkUpload)
+	must.Eq(t, float64(26), usage.NetworkDownload)
+	// Legacy allocations without a requirement remain valid inputs.
+	alloc.Job = nil
+	must.Eq(t, structs.MimirResourceUsage{}, mimirUsage([]*structs.Allocation{nil, alloc}))
+}
+
 func TestFeasibleRankIterator(t *testing.T) {
 	_, ctx := MockContext(t)
 	var nodes []*structs.Node

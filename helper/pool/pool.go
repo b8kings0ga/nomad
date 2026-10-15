@@ -42,6 +42,43 @@ func NewServerCodec(conn io.ReadWriteCloser) rpc.ServerCodec {
 	return msgpackrpc.NewCodecFromHandle(true, true, conn, structs.MsgpackHandle)
 }
 
+// NewServerCodecContext cancels blocking reads when the peer closes its RPC
+// stream. The context is attached after decoding and never crosses the wire.
+func NewServerCodecContext(ctx context.Context, conn io.ReadWriteCloser) rpc.ServerCodec {
+	ctx, cancel := context.WithCancel(ctx)
+	return &queryContextCodec{ServerCodec: NewServerCodec(conn), ctx: ctx, cancel: cancel}
+}
+
+type queryContextCodec struct {
+	rpc.ServerCodec
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+func (c *queryContextCodec) ReadRequestHeader(request *rpc.Request) error {
+	err := c.ServerCodec.ReadRequestHeader(request)
+	if err != nil {
+		c.cancel()
+	}
+	return err
+}
+
+func (c *queryContextCodec) ReadRequestBody(args any) error {
+	if err := c.ServerCodec.ReadRequestBody(args); err != nil {
+		c.cancel()
+		return err
+	}
+	if query, ok := args.(interface{ SetQueryContext(context.Context) }); ok {
+		query.SetQueryContext(c.ctx)
+	}
+	return nil
+}
+
+func (c *queryContextCodec) Close() error {
+	c.cancel()
+	return c.ServerCodec.Close()
+}
+
 // streamClient is used to wrap a stream with an RPC client
 type StreamClient struct {
 	stream net.Conn
@@ -62,7 +99,8 @@ type Conn struct {
 	session  *yamux.Session
 	lastUsed atomic.Pointer[time.Time]
 
-	pool *ConnPool
+	pool          *ConnPool
+	tlsGeneration uint64
 
 	clients    *list.List
 	clientLock sync.Mutex
@@ -211,7 +249,8 @@ type ConnPool struct {
 	limiter map[string]chan struct{}
 
 	// TLS wrapper
-	tlsWrap tlsutil.RegionWrapper
+	tlsWrap       tlsutil.RegionWrapper
+	tlsGeneration uint64
 
 	// yamuxCfg is used for setup rpc client
 	yamuxCfg *yamux.Config
@@ -303,6 +342,7 @@ func (p *ConnPool) ReloadTLS(tlsWrap tlsutil.RegionWrapper) {
 	}
 	p.pool = make(map[string]*Conn)
 	p.tlsWrap = tlsWrap
+	p.tlsGeneration++
 }
 
 // SetConnListener is used to listen to new connections being made. The
@@ -378,6 +418,11 @@ func (p *ConnPool) acquireContext(ctx context.Context, region string, addr net.A
 			c.Close()
 			return nil, fmt.Errorf("rpc error: shutdown")
 		}
+		if c.tlsGeneration != p.tlsGeneration {
+			p.Unlock()
+			c.Close()
+			return nil, fmt.Errorf("rpc error: TLS configuration changed during connection setup")
+		}
 
 		p.pool[addr.String()] = c
 
@@ -423,6 +468,12 @@ func (p *ConnPool) getNewConn(region string, addr net.Addr) (*Conn, error) {
 // getNewConnContext establishes a new pooled session while honoring the
 // request context throughout connection setup.
 func (p *ConnPool) getNewConnContext(ctx context.Context, region string, addr net.Addr) (*Conn, error) {
+	// Capture one configuration for the entire setup. ReloadTLS may replace it
+	// concurrently; acquireContext rejects sessions from an older generation.
+	p.Lock()
+	tlsWrap, tlsGeneration := p.tlsWrap, p.tlsGeneration
+	p.Unlock()
+
 	// Try to dial the conn
 	dialer := net.Dialer{Timeout: p.dialTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", addr.String())
@@ -442,7 +493,7 @@ func (p *ConnPool) getNewConnContext(ctx context.Context, region string, addr ne
 	}
 
 	// Check if TLS is enabled
-	if p.tlsWrap != nil {
+	if tlsWrap != nil {
 		// Switch the connection into TLS mode
 		if _, err := conn.Write([]byte{byte(RpcTLS)}); err != nil {
 			conn.Close()
@@ -450,7 +501,7 @@ func (p *ConnPool) getNewConnContext(ctx context.Context, region string, addr ne
 		}
 
 		// Wrap the connection in a TLS client
-		tlsConn, err := p.tlsWrap(region, conn)
+		tlsConn, err := tlsWrap(region, conn)
 		if err != nil {
 			conn.Close()
 			return nil, err
@@ -473,12 +524,13 @@ func (p *ConnPool) getNewConnContext(ctx context.Context, region string, addr ne
 
 	// Wrap the connection
 	c := &Conn{
-		refCount: 1,
-		addr:     addr,
-		session:  session,
-		clients:  list.New(),
-		lastUsed: atomic.Pointer[time.Time]{},
-		pool:     p,
+		refCount:      1,
+		addr:          addr,
+		session:       session,
+		clients:       list.New(),
+		lastUsed:      atomic.Pointer[time.Time]{},
+		pool:          p,
+		tlsGeneration: tlsGeneration,
 	}
 
 	now := time.Now()
