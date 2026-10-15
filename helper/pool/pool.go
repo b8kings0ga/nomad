@@ -337,6 +337,10 @@ func (p *ConnPool) acquireContext(ctx context.Context, region string, addr net.A
 	// here since it should the vastly more common case than the rest
 	// of the code here.
 	p.Lock()
+	if p.shutdown {
+		p.Unlock()
+		return nil, fmt.Errorf("rpc error: shutdown")
+	}
 	c := p.pool[addr.String()]
 	if c != nil {
 		c.markForUse()
@@ -366,6 +370,13 @@ func (p *ConnPool) acquireContext(ctx context.Context, region string, addr net.A
 		if err != nil {
 			p.Unlock()
 			return nil, err
+		}
+		// Shutdown may have completed while the connection was being set up.
+		// Do not repopulate a pool whose reaper and owner have already stopped.
+		if p.shutdown {
+			p.Unlock()
+			c.Close()
+			return nil, fmt.Errorf("rpc error: shutdown")
 		}
 
 		p.pool[addr.String()] = c
