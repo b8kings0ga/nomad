@@ -5,8 +5,6 @@ package nomad
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/x509"
@@ -74,7 +72,7 @@ type Encrypter struct {
 // disambiguate which signing algorithm to use.
 type cipherSet struct {
 	rootKey           *structs.UnwrappedRootKey
-	cipher            cipher.AEAD
+	wrapper           kms.Wrapper
 	eddsaPrivateKey   ed25519.PrivateKey
 	rsaPrivateKey     *rsa.PrivateKey
 	rsaPKCS1PublicKey []byte // PKCS #1 DER encoded public key for JWKS
@@ -230,32 +228,24 @@ func (e *Encrypter) IsReady(ctx context.Context) error {
 // returns the cipher text (including the nonce), and the key ID used to encrypt
 // it
 func (e *Encrypter) Encrypt(cleartext []byte) ([]byte, string, error) {
-
 	cs, err := e.activeCipherSet()
 	if err != nil {
 		return nil, "", err
 	}
 
-	nonce, err := crypto.Bytes(cs.cipher.NonceSize())
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to generate key wrapper nonce: %v", err)
-	}
-
 	keyID := cs.rootKey.Meta.KeyID
-	additional := []byte(keyID) // include the keyID in the signature inputs
+	additional := kms.WithAad([]byte(keyID)) // include the keyID in the seal inputs
 
-	// we use the nonce as the dst buffer so that the ciphertext is appended to
-	// that buffer and we always keep the nonce and ciphertext together, and so
-	// that we're not tempted to reuse the cleartext buffer which the caller
-	// still owns
-	ciphertext := cs.cipher.Seal(nonce, nonce, cleartext, additional)
-	return ciphertext, keyID, nil
+	bi, err := cs.wrapper.Encrypt(e.srv.shutdownCtx, cleartext, additional)
+	if err != nil {
+		return nil, "", fmt.Errorf("could not encrypt: %w", err)
+	}
+	return bi.Ciphertext, keyID, nil
 }
 
 // Decrypt takes an encrypted buffer and then root key ID. It extracts
 // the nonce, decrypts the content, and returns the cleartext data.
 func (e *Encrypter) Decrypt(ciphertext []byte, keyID string) ([]byte, error) {
-
 	ctx, cancel := context.WithTimeout(e.srv.shutdownCtx, time.Second)
 	defer cancel()
 	ks, err := e.waitForKey(ctx, keyID)
@@ -263,11 +253,11 @@ func (e *Encrypter) Decrypt(ciphertext []byte, keyID string) ([]byte, error) {
 		return nil, err
 	}
 
-	nonceSize := ks.cipher.NonceSize()
-	nonce := ciphertext[:nonceSize] // nonce was stored alongside ciphertext
-	additional := []byte(keyID)     // keyID was included in the signature inputs
-
-	return ks.cipher.Open(nil, nonce, ciphertext[nonceSize:], additional)
+	additional := kms.WithAad([]byte(keyID)) // keyID was included in the seal inputs
+	bi := &kms.BlobInfo{
+		Ciphertext: ciphertext, // nonce was stored alongside ciphertext
+	}
+	return ks.wrapper.Decrypt(ctx, bi, additional)
 }
 
 // keyIDHeader is the JWT header for the Nomad Key ID used to sign the
@@ -626,27 +616,19 @@ func (e *Encrypter) generateCipher(rootKey *structs.UnwrappedRootKey) (*cipherSe
 	if rootKey == nil || rootKey.Meta == nil {
 		return nil, fmt.Errorf("missing metadata")
 	}
-	var aeadCipher cipher.AEAD
-
-	switch rootKey.Meta.Algorithm {
-	case structs.EncryptionAlgorithmAES256GCM:
-		block, err := aes.NewCipher(rootKey.Key)
-		if err != nil {
-			return nil, fmt.Errorf("could not create cipher: %v", err)
-		}
-		aeadCipher, err = cipher.NewGCM(block)
-		if err != nil {
-			return nil, fmt.Errorf("could not create cipher: %v", err)
-		}
-	default:
+	if rootKey.Meta.Algorithm != structs.EncryptionAlgorithmAES256GCM {
 		return nil, fmt.Errorf("invalid algorithm %s", rootKey.Meta.Algorithm)
+	}
+	wrapper, err := newAEADWrapper(rootKey.Meta.KeyID, rootKey.Key)
+	if err != nil {
+		return nil, fmt.Errorf("could not configure cipher: %w", err)
 	}
 
 	ed25519Key := ed25519.NewKeyFromSeed(rootKey.Key)
 
 	cs := cipherSet{
 		rootKey:         rootKey,
-		cipher:          aeadCipher,
+		wrapper:         wrapper,
 		eddsaPrivateKey: ed25519Key,
 	}
 
@@ -1024,7 +1006,8 @@ func (e *Encrypter) GetPublicKey(keyID string) (*structs.KeyringPublicKey, error
 // KeyringReplicator supports the legacy (pre-1.9.0) keyring management where
 // wrapped keys were stored outside of Raft.
 //
-// COMPAT(1.12.0) - remove in 1.12.0 LTS
+// COMPAT: remove once we can guarantee there are no 1.8.x servers upgradable to
+// current LTS
 type KeyringReplicator struct {
 	srv       *Server
 	encrypter *Encrypter

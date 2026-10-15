@@ -1353,13 +1353,9 @@ func Commands(metaPtr *Meta, agentUi cli.Ui) map[string]cli.CommandFactory {
 	}
 	registerExternalAuthCommands(all, meta)
 
-	for k, v := range deprecated {
-		all[k] = v
-	}
+	maps.Copy(all, deprecated)
 
-	for k, v := range EntCommands(metaPtr, agentUi) {
-		all[k] = v
-	}
+	maps.Copy(all, EntCommands(metaPtr, agentUi))
 
 	filterCommandsForBuild(all)
 	return all

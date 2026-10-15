@@ -20,7 +20,7 @@ import (
 	"time"
 
 	hclog "github.com/hashicorp/go-hclog"
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/client/allocrunner"
@@ -364,7 +364,7 @@ var (
 // registered via https://golang.org/pkg/net/rpc/#Server.RegisterName in place
 // of the client's normal RPC handlers. This allows server tests to override
 // the behavior of the client.
-func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulProxiesFunc consulApiShim.SupportedProxiesAPIFunc, consulServices serviceregistration.Handler, rpcs map[string]interface{}) (*Client, error) {
+func NewClient(cfg *config.Config, consulCatalog consul.CatalogAPI, consulProxiesFunc consulApiShim.SupportedProxiesAPIFunc, consulServices serviceregistration.Handler, rpcs map[string]any) (*Client, error) {
 	// Create the tls wrapper
 	var tlsWrap tlsutil.RegionWrapper
 	if cfg.TLSConfig.EnableRPC {
@@ -997,11 +997,6 @@ func (c *Client) Shutdown() error {
 	}
 	c.logger.Info("shutting down")
 
-	// Stop renewing tokens and secrets
-	for _, vaultClient := range c.vaultClients {
-		vaultClient.Stop()
-	}
-
 	// Stop Garbage collector
 	c.garbageCollector.Stop()
 
@@ -1596,9 +1591,7 @@ func (c *Client) getAllocRunners() map[string]interfaces.AllocRunner {
 	c.allocLock.RLock()
 	defer c.allocLock.RUnlock()
 	runners := make(map[string]interfaces.AllocRunner, len(c.allocs))
-	for id, ar := range c.allocs {
-		runners[id] = ar
-	}
+	maps.Copy(runners, c.allocs)
 	return runners
 }
 
@@ -1985,11 +1978,15 @@ func (c *Client) registerAndHeartbeat() {
 			return
 		}
 		if err := c.updateNodeStatus(); err != nil {
-			// The servers have changed such that this node has not been
-			// registered before
-			if strings.Contains(err.Error(), "node not found") {
-				// Re-register the node
+			// The server state has changed such that this node has not been
+			// registered before (GC'd or restored from backup), or the identity
+			// expired while the node was disconnected. Note that this is
+			// intentionally unrecoverable in enforcement=strict mode without
+			// re-introduction.
+			if strings.Contains(err.Error(), "node not found") ||
+				strings.Contains(err.Error(), "Permission denied") {
 				c.logger.Info("re-registering node")
+				c.setNodeIdentityToken("")
 				c.retryRegisterNode()
 				heartbeat = time.After(helper.RandomStagger(initialHeartbeatStagger))
 			} else {
@@ -2268,10 +2265,8 @@ func (c *Client) getRegistrationToken() string {
 
 // registerNode is used to register the node or update the registration
 func (c *Client) registerNode(authToken string) error {
-	node := c.Node().Copy()
-	setRatatoskrPackageForRegistration(node, ratatoskrPackageMarkerPath)
 	req := structs.NodeRegisterRequest{
-		Node: node,
+		Node: c.Node(),
 		WriteRequest: structs.WriteRequest{
 			Region:    c.Region(),
 			AuthToken: authToken,
@@ -3116,8 +3111,7 @@ func (c *Client) newAllocRunnerConfig(
 	}
 }
 
-// setupVaultClients creates the objects that periodically renew tokens and
-// secrets with vault.
+// setupVaultClients created vault clients for each configured cluster
 func (c *Client) setupVaultClients() error {
 
 	c.vaultClients = map[string]vaultclient.VaultClient{}
@@ -3132,12 +3126,6 @@ func (c *Client) setupVaultClients() error {
 			return fmt.Errorf("failed to create vault client for cluster %q", vaultConfig.Name)
 		}
 		c.vaultClients[vaultConfig.Name] = vaultClient
-	}
-
-	// Start renewing tokens and secrets only once we've ensured we have created
-	// all the clients
-	for _, vaultClient := range c.vaultClients {
-		vaultClient.Start()
 	}
 
 	return nil

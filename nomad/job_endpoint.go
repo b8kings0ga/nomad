@@ -15,7 +15,7 @@ import (
 	"github.com/golang/snappy"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-memdb"
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-set/v3"
 	"github.com/hashicorp/nomad/acl"
@@ -1314,7 +1314,7 @@ func (j *Job) GetJobVersions(args *structs.JobVersionsRequest,
 				// Compute the diffs
 
 				if args.Diffs {
-					for i := 0; i < len(out); i++ {
+					for i := range out {
 						var old, new *structs.Job
 						new = out[i]
 
@@ -2306,13 +2306,7 @@ func (j *Job) ScaleStatus(args *structs.JobScaleStatusRequest,
 				}
 			}
 
-			maxIndex := job.ModifyIndex
-			if eventsIndex > maxIndex {
-				maxIndex = eventsIndex
-			}
-			if allocsIndex > maxIndex {
-				maxIndex = allocsIndex
-			}
+			maxIndex := max(allocsIndex, max(eventsIndex, job.ModifyIndex))
 			reply.Index = maxIndex
 
 			// Set the query response

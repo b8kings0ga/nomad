@@ -4,6 +4,7 @@
  */
 
 import { module, test } from 'qunit';
+import { a11yAudit } from 'ember-a11y-testing/test-support';
 import { setupApplicationTest } from 'ember-qunit';
 
 import {
@@ -18,7 +19,6 @@ import {
 
 import { setupMirage } from 'ember-cli-mirage/test-support';
 import faker from 'nomad-ui/mirage/faker';
-import a11yAudit from 'nomad-ui/tests/helpers/a11y-audit';
 // TODO: Mirage is not type-friendly / assigns "server" as a global. Try to work around this shortcoming.
 
 module('Acceptance | job status panel', function (hooks) {
@@ -28,6 +28,23 @@ module('Acceptance | job status panel', function (hooks) {
   hooks.beforeEach(async function () {
     this.server.create('node-pool');
     this.server.create('node');
+  });
+
+  test('it passes an accessibility audit', async function (assert) {
+    faker.seed(1);
+    const job = this.server.create('job', {
+      status: 'running',
+      datacenters: ['*'],
+      type: 'service',
+      createAllocations: true,
+      noDeployments: true,
+    });
+    await visit(`/jobs/${job.id}`);
+    await a11yAudit({
+      include: [['#ember-testing-container']],
+      exclude: [['[disabled]']],
+    });
+    assert.ok(true, 'no a11y errors found');
   });
 
   test('Status panel lets you switch between Current and Historical', async function (assert) {
@@ -42,7 +59,6 @@ module('Acceptance | job status panel', function (hooks) {
 
     await visit(`/jobs/${job.id}`);
     assert.dom('.job-status-panel').exists();
-    await a11yAudit(assert);
 
     assert
       .dom('[data-test-status-mode="current"]')
@@ -862,7 +878,7 @@ module('Acceptance | job status panel', function (hooks) {
       await visit(`/jobs/${job.id}`);
       assert.dom('.job-status-panel').exists();
       assert.dom('.failed-or-lost').exists({ count: 1 });
-      assert.dom('.failed-or-lost h4').hasText('Replaced Allocations');
+      assert.dom('.failed-or-lost h3').hasText('Replaced Allocations');
       assert
         .dom('.failed-or-lost-links > span')
         .hasText('0 Restarted', 'Restarted cell at zero by default');
@@ -887,6 +903,31 @@ module('Acceptance | job status panel', function (hooks) {
           '1 Restarted',
           'Restarted cell updates when a task event with type "Restarting" is added',
         );
+    });
+
+    test('Zero-allocation system and sysbatch jobs are Scaled Down', async function (assert) {
+      const jobTypes = ['system', 'sysbatch'];
+
+      for (const type of jobTypes) {
+        let job = this.server.create('job', {
+          status: 'running',
+          datacenters: ['*'],
+          type,
+          createAllocations: false,
+          noActiveDeployment: true,
+          shallow: true,
+          version: 0,
+        });
+
+        await visit(`/jobs/${job.id}`);
+
+        assert
+          .dom('.job-status-panel h2')
+          .hasTextContaining(
+            'Status: Scaled Down',
+            `${type} jobs with no allocations are shown as scaled down`,
+          );
+      }
     });
 
     test('System jobs do not have a sense of Desired/Total allocs', async function (assert) {

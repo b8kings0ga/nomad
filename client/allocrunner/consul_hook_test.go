@@ -6,12 +6,13 @@
 package allocrunner
 
 import (
-	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"hash/fnv"
 	"testing"
 
 	consulapi "github.com/hashicorp/consul/api"
+	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/ci"
 	"github.com/hashicorp/nomad/client/consul"
 	cstate "github.com/hashicorp/nomad/client/state"
@@ -25,7 +26,7 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-func consulHookTestHarness(t *testing.T) *consulHook {
+func consulHookTestHarness(t *testing.T) (*consulHook, *consul.MockConsulClient) {
 	logger := testlog.HCLogger(t)
 
 	alloc := mock.Alloc()
@@ -71,36 +72,40 @@ func consulHookTestHarness(t *testing.T) *consulHook {
 
 	hookResources := cstructs.NewAllocHookResources()
 
+	mockClient := &consul.MockConsulClient{}
+
 	consulHookCfg := consulHookConfig{
-		alloc:                   alloc,
-		allocdir:                nil,
-		widmgr:                  mockWIDMgr,
-		consulConfigs:           consulConfigs,
-		consulClientConstructor: consul.NewMockConsulClient,
-		hookResources:           hookResources,
-		db:                      db,
-		logger:                  logger,
+		alloc:         alloc,
+		allocdir:      nil,
+		widmgr:        mockWIDMgr,
+		consulConfigs: consulConfigs,
+		consulClientConstructor: func(_ *structsc.ConsulConfig, _ hclog.Logger) (consul.Client, error) {
+			return mockClient, nil
+		},
+		hookResources: hookResources,
+		db:            db,
+		logger:        logger,
 	}
-	return newConsulHook(consulHookCfg)
+	return newConsulHook(consulHookCfg), mockClient
 }
 
 func Test_consulHook_prepareConsulTokensForTask(t *testing.T) {
 	ci.Parallel(t)
 
-	hook := consulHookTestHarness(t)
+	hook, _ := consulHookTestHarness(t)
 	task := hook.alloc.LookupTask("web")
 
 	wid := task.GetIdentity("consul_default")
 	ti := *task.IdentityHandle(wid)
 	jwt, err := hook.widmgr.Get(ti)
 	must.NoError(t, err)
-	hashJWT1 := md5.Sum([]byte(jwt.JWT))
+	hashJWT1 := fnv.New128().Sum([]byte(jwt.JWT))
 
 	task2 := hook.alloc.LookupTask("extra")
 	ti2 := *task2.IdentityHandle(wid)
 	jwt2, err := hook.widmgr.Get(ti2)
 	must.NoError(t, err)
-	hashJWT2 := md5.Sum([]byte(jwt2.JWT))
+	hashJWT2 := fnv.New128().Sum([]byte(jwt2.JWT))
 
 	tests := []struct {
 		name           string
@@ -180,7 +185,7 @@ func Test_consulHook_prepareConsulTokensForTask(t *testing.T) {
 func Test_consulHook_prepareConsulTokensForServices(t *testing.T) {
 	ci.Parallel(t)
 
-	hook := consulHookTestHarness(t)
+	hook, _ := consulHookTestHarness(t)
 	task := hook.alloc.LookupTask("web")
 	services := task.Services
 	env := taskenv.NewBuilder(mock.Node(), hook.alloc, task, "global").
@@ -192,7 +197,7 @@ func Test_consulHook_prepareConsulTokensForServices(t *testing.T) {
 		jwt, err := hook.widmgr.Get(widHandle)
 		must.NoError(t, err)
 
-		hash := md5.Sum([]byte(jwt.JWT))
+		hash := fnv.New128().Sum([]byte(jwt.JWT))
 		hashedJWT[widHandle.InterpolatedWorkloadIdentifier] = hex.EncodeToString(hash[:])
 	}
 
@@ -260,7 +265,7 @@ func Test_consulHook_Postrun(t *testing.T) {
 	ci.Parallel(t)
 
 	// no-op must be safe
-	hook := consulHookTestHarness(t)
+	hook, _ := consulHookTestHarness(t)
 	must.NoError(t, hook.Postrun())
 
 	task := hook.alloc.LookupTask("web")
@@ -278,4 +283,36 @@ func Test_consulHook_Postrun(t *testing.T) {
 	must.NoError(t, hook.Postrun())
 	tokens = hook.resourcesBackend.getConsulTokens()
 	must.MapEmpty(t, tokens["default"])
+}
+
+func Test_consulHook_prepareConsulTokensForTask_includeAdditionalMeta(t *testing.T) {
+	ci.Parallel(t)
+
+	hook, mockClient := consulHookTestHarness(t)
+	task := hook.alloc.LookupTask("web")
+
+	tokens := map[string]map[string]*consulapi.ACLToken{}
+	must.NoError(t, hook.prepareConsulTokensForTask(task, nil, tokens))
+
+	must.SliceLen(t, 1, mockClient.Requests)
+	for _, req := range mockClient.Requests {
+		must.Eq(t, hook.alloc.NodeID, req.Meta["node_id"])
+	}
+}
+
+func Test_consulHook_prepareConsulTokensForServices_includeAdditionalMeta(t *testing.T) {
+	ci.Parallel(t)
+
+	hook, mockClient := consulHookTestHarness(t)
+	task := hook.alloc.LookupTask("web")
+	env := taskenv.NewBuilder(mock.Node(), hook.alloc, task, "global").
+		Build().WithTask(hook.alloc, task)
+
+	tokens := map[string]map[string]*consulapi.ACLToken{}
+	must.NoError(t, hook.prepareConsulTokensForServices(task.Services, nil, tokens, env))
+
+	must.SliceLen(t, 1, mockClient.Requests)
+	for _, req := range mockClient.Requests {
+		must.Eq(t, hook.alloc.NodeID, req.Meta["node_id"])
+	}
 }

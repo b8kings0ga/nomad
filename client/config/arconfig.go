@@ -7,7 +7,7 @@ import (
 	"context"
 
 	log "github.com/hashicorp/go-hclog"
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 	"github.com/hashicorp/nomad/client/allocdir"
 	arinterfaces "github.com/hashicorp/nomad/client/allocrunner/interfaces"
 	"github.com/hashicorp/nomad/client/consul"
@@ -34,7 +34,7 @@ type AllocRunnerFactory func(*AllocRunnerConfig) (arinterfaces.AllocRunner, erro
 
 // RPCer is the interface needed by hooks to make RPC calls.
 type RPCer interface {
-	RPC(method string, args interface{}, reply interface{}) error
+	RPC(method string, args any, reply any) error
 }
 
 // AllocRunnerConfig holds the configuration for creating an allocation runner.

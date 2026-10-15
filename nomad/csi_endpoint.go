@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -16,7 +17,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-memdb"
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/hashicorp/nomad/acl"
@@ -1480,9 +1481,7 @@ func (v *CSIVolume) deleteVolume(vol *structs.CSIVolume, plugin *structs.CSIPlug
 	// Combine volume and query secrets into one map.
 	// Query secrets override any secrets stored with the volume.
 	combinedSecrets := vol.Secrets
-	for k, v := range querySecrets {
-		combinedSecrets[k] = v
-	}
+	maps.Copy(combinedSecrets, querySecrets)
 
 	method := "ClientCSI.ControllerDeleteVolume"
 	cReq := &cstructs.ClientCSIControllerDeleteVolumeRequest{
@@ -1628,10 +1627,8 @@ func (v *CSIVolume) CreateSnapshot(args *structs.CSISnapshotCreateRequest, reply
 		}
 
 		secrets := vol.Secrets
-		for k, v := range snap.Secrets {
-			// merge request secrets onto volume secrets
-			secrets[k] = v
-		}
+		// merge request secrets onto volume secrets
+		maps.Copy(secrets, snap.Secrets)
 
 		cReq := &cstructs.ClientCSIControllerCreateSnapshotRequest{
 			ExternalSourceVolumeID: vol.ExternalID,

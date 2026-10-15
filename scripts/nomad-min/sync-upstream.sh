@@ -86,7 +86,7 @@ if [[ "${TARGET_COMMIT}" == "${PATCH_BASE}" ]]; then
   exit 0
 fi
 
-mapfile -t PATCH_COMMITS < <(git -C "${ROOT_DIR}" rev-list --reverse "${PATCH_BASE}..${PATCH_HEAD}")
+mapfile -t PATCH_COMMITS < <(git -C "${ROOT_DIR}" rev-list --reverse --no-merges "${PATCH_BASE}..${PATCH_HEAD}")
 ((${#PATCH_COMMITS[@]} > 0)) || {
   echo "no nomad_min commits found after ${PATCH_BASE}" >&2
   exit 1
@@ -117,8 +117,10 @@ for commit in "${PATCH_COMMITS[@]}"; do
   fi
 done
 
+SOURCE_METADATA="$(awk '$1 == "VersionMetadata" && $2 == "=" {gsub(/"/, "", $3); print $3}' "${WORKTREE}/version/version.go")"
+PACKAGE_VERSION="${TARGET_VERSION}${SOURCE_METADATA:++${SOURCE_METADATA}}"
 printf '%s\n' "${TARGET_COMMIT}" >"${WORKTREE}/nomad-min/UPSTREAM_COMMIT"
-printf '%s\n' "${TARGET_VERSION}" >"${WORKTREE}/nomad-min/UPSTREAM_VERSION"
+printf '%s\n' "${PACKAGE_VERSION}" >"${WORKTREE}/nomad-min/UPSTREAM_VERSION"
 git -C "${WORKTREE}" add nomad-min/UPSTREAM_COMMIT nomad-min/UPSTREAM_VERSION
 if ! git -C "${WORKTREE}" diff --cached --quiet; then
   git -C "${WORKTREE}" commit -m "build: sync nomad_min to ${TARGET}"

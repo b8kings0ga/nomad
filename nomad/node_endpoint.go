@@ -14,7 +14,7 @@ import (
 	"github.com/go-jose/go-jose/v3/jwt"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-memdb"
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/hashicorp/nomad/acl"
@@ -193,9 +193,6 @@ func (n *Node) Register(args *structs.NodeRegisterRequest, reply *structs.NodeUp
 		// emitting, so we only need to check the return value.
 	} else if !n.newRegistrationAllowed(args, authErr) {
 		return structs.ErrPermissionDenied
-	}
-	if err := n.checkRatatoskrPackageAdmission(snap, args.Node); err != nil {
-		return err
 	}
 
 	// We have a valid node connection, so add the mapping to cache the
@@ -540,7 +537,7 @@ func (n *Node) Deregister(args *structs.NodeDeregisterRequest, reply *structs.No
 		WriteRequest: args.WriteRequest,
 	}
 
-	return n.deregister(repack, reply, func() (interface{}, uint64, error) {
+	return n.deregister(repack, reply, func() (any, uint64, error) {
 		return n.srv.raftApply(structs.NodeDeregisterRequestType, args)
 	})
 }
@@ -567,7 +564,7 @@ func (n *Node) BatchDeregister(args *structs.NodeBatchDeregisterRequest, reply *
 		return fmt.Errorf("missing node IDs for client deregistration")
 	}
 
-	return n.deregister(args, reply, func() (interface{}, uint64, error) {
+	return n.deregister(args, reply, func() (any, uint64, error) {
 		return n.srv.raftApply(structs.NodeBatchDeregisterRequestType, args)
 	})
 }
@@ -576,7 +573,7 @@ func (n *Node) BatchDeregister(args *structs.NodeBatchDeregisterRequest, reply *
 // BatchDeregister. The caller should have already authorized the request.
 func (n *Node) deregister(args *structs.NodeBatchDeregisterRequest,
 	reply *structs.NodeUpdateResponse,
-	raftApplyFn func() (interface{}, uint64, error),
+	raftApplyFn func() (any, uint64, error),
 ) error {
 	// Look for the node
 	snap, err := n.srv.fsm.State().Snapshot()
@@ -1397,8 +1394,10 @@ func (n *Node) GetClientAllocs(args *structs.NodeSpecificRequest,
 	// numOldAllocs is used to detect if there is a garbage collection event
 	// that effects the node. When an allocation is garbage collected, that does
 	// not change the modify index changes and thus the query won't unblock,
-	// even though the set of allocations on the node has changed.
-	var numOldAllocs int
+	// even though the set of allocations on the node has changed. This value
+	// is defaulted to -1 so it can be determined if the previous allocation
+	// count is known. If it's not known, we always prefer the allocs table index.
+	var numOldAllocs int = -1
 
 	// Setup the blocking query
 	opts := blockingOptions{
@@ -1431,7 +1430,9 @@ func (n *Node) GetClientAllocs(args *structs.NodeSpecificRequest,
 			preferTableIndex := true
 
 			// Setup the output
-			if numAllocs := len(allocs); numAllocs != 0 {
+			numAllocs := len(allocs)
+
+			if numAllocs > 0 {
 				preferTableIndex = false
 
 				for _, alloc := range allocs {
@@ -1467,18 +1468,20 @@ func (n *Node) GetClientAllocs(args *structs.NodeSpecificRequest,
 					reply.Index = maxUint64(reply.Index, alloc.ModifyIndex)
 				}
 
-				// Determine if we have less allocations than before. This
-				// indicates there was a garbage collection
-				if numAllocs < numOldAllocs {
+				// If the previous allocations count is less than zero, this is
+				// the first run through and the previous count is unknown. Otherwise,
+				// determine if we have less allocations than before. If so, it indicates
+				// there was a garbage collection.
+				if numOldAllocs < 0 || numAllocs < numOldAllocs {
 					preferTableIndex = true
 				}
-
-				// Store the new number of allocations
-				numOldAllocs = numAllocs
 			}
 
+			// Store the new number of allocations
+			numOldAllocs = numAllocs
+
 			if preferTableIndex {
-				// Use the last index that affected the nodes table
+				// Use the last index that affected the allocs table
 				index, err := state.Index("allocs")
 				if err != nil {
 					return err
@@ -1492,6 +1495,7 @@ func (n *Node) GetClientAllocs(args *structs.NodeSpecificRequest,
 					reply.Index = index
 				}
 			}
+
 			return nil
 		}}
 	return n.srv.blockingRPC(&opts)

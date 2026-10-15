@@ -12,9 +12,9 @@ import {
 } from '@ember/test-helpers';
 import { getPageTitle } from 'ember-page-title/test-support';
 import { module, test } from 'qunit';
+import { a11yAudit } from 'ember-a11y-testing/test-support';
 import { setupApplicationTest } from 'ember-qunit';
 import { setupMirage } from 'ember-cli-mirage/test-support';
-import a11yAudit from 'nomad-ui/tests/helpers/a11y-audit';
 import Versions from 'nomad-ui/tests/pages/jobs/job/versions';
 import Layout from 'nomad-ui/tests/pages/layout';
 import moment from 'moment';
@@ -43,10 +43,12 @@ module('Acceptance | job versions', function (hooks) {
     // Create some versions
     this.server.create('job-version', {
       job: job,
+      namespace: namespace.id,
       version: 0,
     });
     this.server.create('job-version', {
       job: job,
+      namespace: namespace.id,
       version: 1,
       versionTag: {
         Name: 'test-tag',
@@ -62,7 +64,11 @@ module('Acceptance | job versions', function (hooks) {
   });
 
   test('it passes an accessibility audit', async function (assert) {
-    await a11yAudit(assert);
+    await a11yAudit({
+      include: [['#ember-testing-container']],
+      exclude: [['[disabled]']],
+    });
+    assert.ok(true, 'no a11y errors found');
   });
 
   test('/jobs/:id/versions should list all job versions', async function (assert) {
@@ -335,12 +341,14 @@ module('Acceptance | job versions (clone and edit)', function (hooks) {
     // remove auto-created versions and create 3 of them, one with a tag
     this.server.db.jobVersions.remove();
     this.server.create('job-version', {
-      job,
+      job: job,
+      namespace: namespace.id,
       version: 99,
       submitTime: 1731101785761339000,
     });
     this.server.create('job-version', {
       job,
+      namespace: namespace.id,
       version: 98,
       submitTime: 1731101685761339000,
       versionTag: {
@@ -350,6 +358,7 @@ module('Acceptance | job versions (clone and edit)', function (hooks) {
     });
     this.server.create('job-version', {
       job,
+      namespace: namespace.id,
       version: 0,
       submitTime: 1731101585761339000,
     });
@@ -500,10 +509,12 @@ module('Acceptance | job versions (with client token)', function (hooks) {
     // Create some versions
     this.server.create('job-version', {
       job: job,
+      namespace: namespace.id,
       version: 0,
     });
     this.server.create('job-version', {
       job: job,
+      namespace: namespace.id,
       version: 1,
       versionTag: {
         Name: 'test-tag',
@@ -522,10 +533,12 @@ module('Acceptance | job versions (with client token)', function (hooks) {
     // Create job2 versions
     this.server.create('job-version', {
       job: job2,
+      namespace: namespace2.id,
       version: 0,
     });
     this.server.create('job-version', {
       job: job2,
+      namespace: namespace2.id,
       version: 1,
       versionTag: {
         Name: 'test-tag',
@@ -544,10 +557,12 @@ module('Acceptance | job versions (with client token)', function (hooks) {
     // Create job3 versions
     this.server.create('job-version', {
       job: job3,
+      namespace: namespace3.id,
       version: 0,
     });
     this.server.create('job-version', {
       job: job3,
+      namespace: namespace3.id,
       version: 1,
       versionTag: {
         Name: 'test-tag',

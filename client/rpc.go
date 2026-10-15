@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/hashicorp/nomad/client/servers"
 	"github.com/hashicorp/nomad/helper"
@@ -33,7 +33,7 @@ type rpcEndpoints struct {
 }
 
 // ClientRPC is used to make a local, client only RPC call
-func (c *Client) ClientRPC(method string, args interface{}, reply interface{}) error {
+func (c *Client) ClientRPC(method string, args any, reply any) error {
 	codec := &inmem.InmemCodec{
 		Method: method,
 		Args:   args,
@@ -199,7 +199,7 @@ func rpcServerUnavailable(err error) bool {
 }
 
 // canRetry returns true if the given situation is safe for a retry.
-func canRetry(args interface{}, err error) bool {
+func canRetry(args any, err error) bool {
 	// The connection pool proves that no RPC bytes were sent. This includes
 	// concurrent callers waiting on a failed initial connection during restore.
 	if errors.Is(err, pool.ErrRPCNotSent) {
@@ -319,7 +319,7 @@ func (c *Client) streamingRpcConn(server *servers.Server, method string) (net.Co
 }
 
 // setupClientRpc is used to setup the Client's RPC endpoints
-func (c *Client) setupClientRpc(rpcs map[string]interface{}) {
+func (c *Client) setupClientRpc(rpcs map[string]any) {
 	// Create the RPC Server
 	c.rpcServer = rpc.NewServer()
 

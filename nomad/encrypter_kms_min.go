@@ -24,6 +24,10 @@ func (e *Encrypter) newKMSWrapper(provider *structs.KEKProviderConfig, keyID str
 	if provider.Provider != "" && provider.Provider != structs.KEKProviderAEAD {
 		return nil, fmt.Errorf("nomad_min: unsupported feature keyring provider %q", provider.Provider)
 	}
+	return newAEADWrapper(keyID, kek)
+}
+
+func newAEADWrapper(keyID string, kek []byte) (kms.Wrapper, error) {
 	block, err := aes.NewCipher(kek)
 	if err != nil {
 		return nil, err

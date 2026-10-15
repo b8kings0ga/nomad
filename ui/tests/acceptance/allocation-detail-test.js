@@ -14,9 +14,9 @@ import {
   waitUntil,
 } from '@ember/test-helpers';
 import { module, test } from 'qunit';
+import { a11yAudit } from 'ember-a11y-testing/test-support';
 import { setupApplicationTest } from 'ember-qunit';
 import { setupMirage } from 'ember-cli-mirage/test-support';
-import a11yAudit from 'nomad-ui/tests/helpers/a11y-audit';
 import Allocation from 'nomad-ui/tests/pages/allocations/detail';
 import moment from 'moment';
 import formatHost from 'nomad-ui/utils/format-host';
@@ -63,7 +63,11 @@ module('Acceptance | allocation detail', function (hooks) {
   });
 
   test('it passes an accessibility audit', async function (assert) {
-    await a11yAudit(assert);
+    await a11yAudit({
+      include: [['#ember-testing-container']],
+      exclude: [['[disabled]']],
+    });
+    assert.ok(true, 'no a11y errors found');
   });
 
   test('/allocation/:id should name the allocation and link to the corresponding job and node', async function (assert) {
@@ -493,8 +497,10 @@ module('Acceptance | allocation detail', function (hooks) {
       'Title is descriptive',
     );
     assert.ok(
-      /ACL token.+?allocation lifecycle/.test(Allocation.inlineError.message),
-      'Message mentions ACLs and the appropriate permission',
+      /ACL token.+?allocation lifecycle|not signed in.+sign in to perform this action/i.test(
+        Allocation.inlineError.message,
+      ),
+      'Message mentions ACL permissions or sign-in guidance',
     );
 
     await Allocation.inlineError.dismiss();

@@ -4,6 +4,7 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -13,7 +14,7 @@ import (
 
 // JobStatusesRequest looks up the status of jobs' allocs and deployments,
 // primarily for use in the UI on the /ui/jobs index page.
-func (s *HTTPServer) JobStatusesRequest(resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) JobStatusesRequest(resp http.ResponseWriter, req *http.Request) (any, error) {
 	var out structs.JobStatusesResponse
 	args := structs.JobStatusesRequest{}
 	if s.parse(resp, req, &args.Region, &args.QueryOptions) {
@@ -35,11 +36,13 @@ func (s *HTTPServer) JobStatusesRequest(resp http.ResponseWriter, req *http.Requ
 
 	// ostensibly GETs should not accept structured body, but the HTTP spec
 	// on this is more what you'd call "guidelines" than actual rules.
-	if req.Body != nil && req.Body != http.NoBody {
-		var in api.JobStatusesRequest
-		if err := decodeBody(req, &in); err != nil {
-			return nil, CodedError(http.StatusBadRequest, fmt.Sprintf("error decoding request: %v", err))
-		}
+	var in api.JobStatusesRequest
+
+	// attempt to decode the body. if the request does not have a body, do
+	// not attempt to inspect it.
+	if err := decodeBody(req, &in); err != nil && !errors.Is(err, errNoBody) {
+		return nil, CodedError(http.StatusBadRequest, fmt.Sprintf("error decoding request: %v", err))
+	} else if !errors.Is(err, errNoBody) {
 		if len(in.Jobs) == 0 {
 			return nil, CodedError(http.StatusBadRequest, "no jobs in request")
 		}

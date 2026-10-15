@@ -308,7 +308,6 @@ func TestHTTP_AllocQuery_Payload(t *testing.T) {
 
 func TestHTTP_AllocRestart(t *testing.T) {
 	ci.Parallel(t)
-	require := require.New(t)
 
 	// Validates that all methods of forwarding the request are processed correctly
 	httpTest(t, nil, func(s *TestAgent) {
@@ -317,15 +316,42 @@ func TestHTTP_AllocRestart(t *testing.T) {
 			// Make the HTTP request
 			buf := encodeReq(map[string]string{})
 			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("/v1/client/allocation/%s/restart", uuid.Generate()), buf)
-			if err != nil {
-				t.Fatalf("err: %v", err)
-			}
-			respW := httptest.NewRecorder()
+			must.NoError(t, err)
 
 			// Make the request
+			respW := httptest.NewRecorder()
 			_, err = s.Server.ClientAllocRequest(respW, req)
-			require.NotNil(err)
-			require.True(structs.IsErrUnknownAllocation(err))
+			must.Error(t, err)
+			must.True(t, structs.IsErrUnknownAllocation(err))
+		}
+
+		// Local node, local resp, empty body
+		{
+			// Make the HTTP request
+			body := io.NopCloser(strings.NewReader(""))
+			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("/v1/client/allocation/%s/restart", uuid.Generate()), body)
+			must.NoError(t, err)
+			req.Body = body
+
+			// Make the request
+			respW := httptest.NewRecorder()
+			_, err = s.Server.ClientAllocRequest(respW, req)
+			must.Error(t, err)
+			must.True(t, structs.IsErrUnknownAllocation(err))
+		}
+
+		// Local node, local resp, empty body with http.NoBody
+		{
+			// Make the HTTP request
+			body := http.NoBody
+			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("/v1/client/allocation/%s/restart", uuid.Generate()), body)
+			must.NoError(t, err)
+
+			// Make the request
+			respW := httptest.NewRecorder()
+			_, err = s.Server.ClientAllocRequest(respW, req)
+			must.Error(t, err)
+			must.True(t, structs.IsErrUnknownAllocation(err))
 		}
 
 		// Local node, server resp
@@ -335,12 +361,12 @@ func TestHTTP_AllocRestart(t *testing.T) {
 
 			buf := encodeReq(map[string]string{})
 			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("/v1/client/allocation/%s/restart", uuid.Generate()), buf)
-			require.Nil(err)
+			must.NoError(t, err)
 
 			respW := httptest.NewRecorder()
 			_, err = s.Server.ClientAllocRequest(respW, req)
-			require.NotNil(err)
-			require.True(structs.IsErrUnknownAllocation(err))
+			must.Error(t, err)
+			must.True(t, structs.IsErrUnknownAllocation(err))
 
 			s.server = srv
 		}
@@ -362,12 +388,12 @@ func TestHTTP_AllocRestart(t *testing.T) {
 
 			buf := encodeReq(map[string]string{})
 			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("/v1/client/allocation/%s/restart", uuid.Generate()), buf)
-			require.Nil(err)
+			must.NoError(t, err)
 
 			respW := httptest.NewRecorder()
 			_, err = s.Server.ClientAllocRequest(respW, req)
-			require.NotNil(err)
-			require.True(structs.IsErrUnknownAllocation(err))
+			must.Error(t, err)
+			must.True(t, structs.IsErrUnknownAllocation(err))
 
 			s.client = c
 		}
@@ -664,6 +690,35 @@ func TestHTTP_AllocStats(t *testing.T) {
 	})
 }
 
+// TestHTTP_AllocStats_UnknownNode asserts the client stats endpoint returns a
+// 404 rather than a 500 when the allocation's node cannot be found, matching
+// the unknown-allocation and no-path-to-node cases. See issue 26838.
+func TestHTTP_AllocStats_UnknownNode(t *testing.T) {
+	ci.Parallel(t)
+
+	httpTest(t, nil, func(s *TestAgent) {
+		// Insert an allocation whose node is not registered, so the server RPC
+		// resolves the allocation but fails to find its node.
+		state := s.Agent.server.State()
+		alloc := mock.Alloc()
+		must.NoError(t, state.UpsertJobSummary(998, mock.JobSummary(alloc.JobID)))
+		must.NoError(t, state.UpsertJob(structs.MsgTypeTestSetup, 999, nil, alloc.Job))
+		must.NoError(t, state.UpsertAllocs(structs.MsgTypeTestSetup, 1000, []*structs.Allocation{alloc}))
+
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("/v1/client/allocation/%s/stats", alloc.ID), nil)
+		must.NoError(t, err)
+		respW := httptest.NewRecorder()
+
+		_, err = s.Server.ClientAllocRequest(respW, req)
+		must.Error(t, err)
+		must.True(t, structs.IsErrUnknownNode(err))
+
+		codedErr, ok := err.(HTTPCodedError)
+		must.True(t, ok)
+		must.Eq(t, 404, codedErr.Code())
+	})
+}
+
 func TestHTTP_AllocStats_ACL(t *testing.T) {
 	ci.Parallel(t)
 	require := require.New(t)
@@ -783,7 +838,7 @@ func TestHTTP_AllocSnapshot_Atomic(t *testing.T) {
 		state := s.server.State()
 		alloc := mock.Alloc()
 		alloc.Job.TaskGroups[0].Tasks[0].Driver = "mock_driver"
-		alloc.Job.TaskGroups[0].Tasks[0].Config = map[string]interface{}{
+		alloc.Job.TaskGroups[0].Tasks[0].Config = map[string]any{
 			"run_for": "30s",
 		}
 		alloc.NodeID = s.client.NodeID()
@@ -877,6 +932,152 @@ func TestHTTP_AllocSnapshot_Atomic(t *testing.T) {
 			t.Fatalf("marker file %s empty", markerContents)
 		} else {
 			t.Logf("EXPECTED snapshot error: %s", markerContents)
+		}
+	})
+}
+
+func TestHTTP_AllocPause(t *testing.T) {
+	ci.Parallel(t)
+	path := fmt.Sprintf("/v1/client/allocation/%s/pause", uuid.Generate())
+
+	t.Run("Set", func(t *testing.T) {
+		ci.Parallel(t)
+
+		testCases := []struct {
+			name   string
+			body   io.ReadCloser
+			before func(*TestAgent) func()
+			err    string
+		}{
+			{
+				name: "empty body",
+				body: http.NoBody,
+				err:  "Not a valid task schedule state",
+			},
+			{
+				name: "empty reader",
+				body: io.NopCloser(strings.NewReader("")),
+				err:  "Not a valid task schedule state",
+			},
+			{
+				name: "local node, local response",
+				body: encodeReq(map[string]string{"ScheduleState": "pause"}),
+			},
+			{
+				name: "local node, server response",
+				body: encodeReq(map[string]string{"ScheduleState": "pause"}),
+				before: func(agent *TestAgent) func() {
+					s := agent.server
+					agent.server = nil
+					return func() { agent.server = s }
+				},
+			},
+			{
+				name: "no client, server resp",
+				body: encodeReq(map[string]string{"ScheduleState": "pause"}),
+				before: func(agent *TestAgent) func() {
+					c := agent.client
+					agent.client = nil
+
+					testutil.WaitForResult(func() (bool, error) {
+						n, err := agent.server.State().NodeByID(nil, c.NodeID())
+						if err != nil {
+							return false, err
+						}
+						return n != nil, nil
+					}, func(err error) {
+						t.Fatalf("should have client: %v", err)
+					})
+
+					return func() { agent.client = c }
+				},
+			},
+		}
+
+		for _, tc := range testCases {
+			httpTest(t, nil, func(s *TestAgent) {
+				t.Run(tc.name, func(t *testing.T) {
+					if tc.before != nil {
+						if cleanup := tc.before(s); cleanup != nil {
+							t.Cleanup(cleanup)
+						}
+					}
+					req, err := http.NewRequest(http.MethodPost, path, tc.body)
+					must.NoError(t, err)
+					req.Body = tc.body // ensure the test case defined value is set.
+
+					respW := httptest.NewRecorder()
+					_, err = s.Server.ClientAllocRequest(respW, req)
+					must.Error(t, err)
+					if tc.err != "" {
+						must.ErrorContains(t, err, tc.err)
+					} else {
+						must.True(t, structs.IsErrUnknownAllocation(err),
+							must.Sprintf("expecting ErrUnknownAllocation, got %v", err))
+					}
+				})
+			})
+		}
+	})
+
+	t.Run("Get", func(t *testing.T) {
+		ci.Parallel(t)
+
+		testCases := []struct {
+			name   string
+			body   io.ReadCloser
+			before func(*TestAgent) func()
+		}{
+			{
+				name: "local node, local response",
+			},
+			{
+				name: "local node, server response",
+				before: func(agent *TestAgent) func() {
+					s := agent.server
+					agent.server = nil
+					return func() { agent.server = s }
+				},
+			},
+			{
+				name: "no client, server resp",
+				before: func(agent *TestAgent) func() {
+					c := agent.client
+					agent.client = nil
+
+					testutil.WaitForResult(func() (bool, error) {
+						n, err := agent.server.State().NodeByID(nil, c.NodeID())
+						if err != nil {
+							return false, err
+						}
+						return n != nil, nil
+					}, func(err error) {
+						t.Fatalf("should have client: %v", err)
+					})
+
+					return func() { agent.client = c }
+				},
+			},
+		}
+
+		for _, tc := range testCases {
+			httpTest(t, nil, func(s *TestAgent) {
+				t.Run(tc.name, func(t *testing.T) {
+					if tc.before != nil {
+						if cleanup := tc.before(s); cleanup != nil {
+							t.Cleanup(cleanup)
+						}
+					}
+					req, err := http.NewRequest(http.MethodGet, path, tc.body)
+					must.NoError(t, err)
+
+					respW := httptest.NewRecorder()
+					_, err = s.Server.ClientAllocRequest(respW, req)
+					must.Error(t, err)
+					must.True(t, structs.IsErrUnknownAllocation(err),
+						must.Sprintf("expecting ErrUnknownAllocation, got %v", err))
+				})
+			})
 		}
 	})
 }

@@ -164,7 +164,7 @@ func TestCSIController_AttachVolume(t *testing.T) {
 				tc.ClientSetupFunc(fakeClient)
 			}
 
-			dispenserFunc := func(*dynamicplugins.PluginInfo) (interface{}, error) {
+			dispenserFunc := func(*dynamicplugins.PluginInfo) (any, error) {
 				return fakeClient, nil
 			}
 			client.dynamicRegistry.StubDispenserForType(dynamicplugins.PluginTypeCSIController, dispenserFunc)
@@ -267,7 +267,7 @@ func TestCSIController_ValidateVolume(t *testing.T) {
 				tc.ClientSetupFunc(fakeClient)
 			}
 
-			dispenserFunc := func(*dynamicplugins.PluginInfo) (interface{}, error) {
+			dispenserFunc := func(*dynamicplugins.PluginInfo) (any, error) {
 				return fakeClient, nil
 			}
 			client.dynamicRegistry.StubDispenserForType(dynamicplugins.PluginTypeCSIController, dispenserFunc)
@@ -350,7 +350,7 @@ func TestCSIController_DetachVolume(t *testing.T) {
 				tc.ClientSetupFunc(fakeClient)
 			}
 
-			dispenserFunc := func(*dynamicplugins.PluginInfo) (interface{}, error) {
+			dispenserFunc := func(*dynamicplugins.PluginInfo) (any, error) {
 				return fakeClient, nil
 			}
 			client.dynamicRegistry.StubDispenserForType(dynamicplugins.PluginTypeCSIController, dispenserFunc)
@@ -451,7 +451,7 @@ func TestCSIController_CreateVolume(t *testing.T) {
 				tc.ClientSetupFunc(fakeClient)
 			}
 
-			dispenserFunc := func(*dynamicplugins.PluginInfo) (interface{}, error) {
+			dispenserFunc := func(*dynamicplugins.PluginInfo) (any, error) {
 				return fakeClient, nil
 			}
 			client.dynamicRegistry.StubDispenserForType(
@@ -520,7 +520,7 @@ func TestCSIController_ExpandVolume(t *testing.T) {
 				NextControllerExpandVolumeErr:      tc.NextErr,
 			}
 
-			dispenserFunc := func(*dynamicplugins.PluginInfo) (interface{}, error) {
+			dispenserFunc := func(*dynamicplugins.PluginInfo) (any, error) {
 				return fakeClient, nil
 			}
 			client.dynamicRegistry.StubDispenserForType(
@@ -604,7 +604,7 @@ func TestCSIController_DeleteVolume(t *testing.T) {
 				tc.ClientSetupFunc(fakeClient)
 			}
 
-			dispenserFunc := func(*dynamicplugins.PluginInfo) (interface{}, error) {
+			dispenserFunc := func(*dynamicplugins.PluginInfo) (any, error) {
 				return fakeClient, nil
 			}
 			client.dynamicRegistry.StubDispenserForType(
@@ -713,7 +713,7 @@ func TestCSIController_ListVolumes(t *testing.T) {
 				tc.ClientSetupFunc(fakeClient)
 			}
 
-			dispenserFunc := func(*dynamicplugins.PluginInfo) (interface{}, error) {
+			dispenserFunc := func(*dynamicplugins.PluginInfo) (any, error) {
 				return fakeClient, nil
 			}
 			client.dynamicRegistry.StubDispenserForType(
@@ -805,7 +805,7 @@ func TestCSIController_CreateSnapshot(t *testing.T) {
 				tc.ClientSetupFunc(fakeClient)
 			}
 
-			dispenserFunc := func(*dynamicplugins.PluginInfo) (interface{}, error) {
+			dispenserFunc := func(*dynamicplugins.PluginInfo) (any, error) {
 				return fakeClient, nil
 			}
 			client.dynamicRegistry.StubDispenserForType(
@@ -869,7 +869,7 @@ func TestCSIController_DeleteSnapshot(t *testing.T) {
 				tc.ClientSetupFunc(fakeClient)
 			}
 
-			dispenserFunc := func(*dynamicplugins.PluginInfo) (interface{}, error) {
+			dispenserFunc := func(*dynamicplugins.PluginInfo) (any, error) {
 				return fakeClient, nil
 			}
 			client.dynamicRegistry.StubDispenserForType(
@@ -973,7 +973,7 @@ func TestCSIController_ListSnapshots(t *testing.T) {
 				tc.ClientSetupFunc(fakeClient)
 			}
 
-			dispenserFunc := func(*dynamicplugins.PluginInfo) (interface{}, error) {
+			dispenserFunc := func(*dynamicplugins.PluginInfo) (any, error) {
 				return fakeClient, nil
 			}
 			client.dynamicRegistry.StubDispenserForType(

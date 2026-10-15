@@ -16,6 +16,7 @@ BUILD_DATE_FLAG = $(GO_MODULE)/version.BuildDate=$(BUILD_DATE)
 GO_LDFLAGS = -X $(GIT_COMMIT_FLAG) -X $(BUILD_DATE_FLAG)
 
 GOPATH := $(shell go env GOPATH)
+GOFIPS140 ?= "off"
 
 # Respect $GOBIN if set in environment or via $GOENV file.
 BIN := $(shell go env GOBIN)
@@ -23,7 +24,7 @@ ifndef BIN
 BIN := $(GOPATH)/bin
 endif
 
-GO_TAGS := hashicorpmetrics $(GO_TAGS)
+GO_TAGS := $(GO_TAGS)
 
 ifeq ($(CI),true)
 GO_TAGS := codegen_generated $(GO_TAGS)
@@ -95,6 +96,7 @@ ifeq (,$(findstring $(THIS_OS),$(SUPPORTED_OSES)))
 endif
 	@echo "==> Building $@ with tags $(GO_TAGS)..."
 	@CGO_ENABLED=$(CGO_ENABLED) \
+		GOFIPS140=$(GOFIPS140) \
 		GOOS=$(firstword $(subst _, ,$*)) \
 		GOARCH=$(lastword $(subst _, ,$*)) \
 		CC=$(CC) \
@@ -155,20 +157,21 @@ deps:  ## Install build and development dependencies
 	go install github.com/a8m/tree/cmd/tree@fce18e2a750ea4e7f53ee706b1c3d9cbb22de79c
 	go install gotest.tools/gotestsum@v1.10.0
 	go install github.com/hashicorp/hcl/v2/cmd/hclfmt@d0c4fa8b0bbc2e4eeccd1ed2a32c2089ed8c5cf1
-	go install github.com/golang/protobuf/protoc-gen-go@v1.3.4
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
 	go install github.com/hashicorp/go-msgpack/v2/codec/codecgen@v2.1.5
-	go install github.com/bufbuild/buf/cmd/buf@v0.36.0
+	go install github.com/bufbuild/buf/cmd/buf@v1.72.0
 	go install github.com/hashicorp/go-changelog/cmd/changelog-build@latest
-	go install golang.org/x/tools/cmd/stringer@v0.30.0
+	go install golang.org/x/tools/cmd/stringer@v0.49.0
 	go install github.com/hashicorp/hc-install/cmd/hc-install@v0.9.4
 	go install github.com/shoenig/go-modtool@v0.2.0
 
 .PHONY: lint-deps
 lint-deps: ## Install linter dependencies
 	@echo "==> Updating linter dependencies..."
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
 	go install github.com/client9/misspell/cmd/misspell@v0.3.4
-	go install github.com/hashicorp/go-hclog/hclogvet@bd6194f1f5b126dbad2a3fdf3b9b6556cc3496c3
+	go install github.com/hashicorp/go-hclog/hclogvet@e4c86b4cdbc417b598e03d5e4344ddff3419aea1
 
 .PHONY: git-hooks
 git-dir = $(shell git rev-parse --git-dir)
@@ -183,7 +186,9 @@ check: ## Lint the source code
 	@golangci-lint run --build-tags "$(GO_TAGS)"
 
 	@echo "==> Linting ./api source code..."
-	@cd ./api && golangci-lint run --config ../.golangci.yml --build-tags "$(GO_TAGS)"
+	@cd ./api && golangci-lint run \
+	  --enable modernize \
+	  --config ../.golangci.yml --build-tags "$(GO_TAGS)"
 
 	@echo "==> Linting hclog statements..."
 	@GOFLAGS="-tags=$(GO_TAGS_COMMA)" hclogvet ./...
@@ -236,10 +241,10 @@ checkscripts: ## Lint shell scripts
 .PHONY: checkproto
 checkproto: ## Lint protobuf files
 	@echo "==> Lint proto files..."
-	@buf check lint --config tools/buf/buf.yaml
+	@buf lint --config tools/buf/buf.yaml
 
 	@echo "==> Checking for breaking changes in protos..."
-	@buf check breaking --config tools/buf/buf.yaml --against-config tools/buf/buf.yaml --against .git#tag=$(PROTO_COMPARE_TAG)
+	@buf breaking --config tools/buf/buf.yaml --against-config tools/buf/buf.yaml --against .git#tag=$(PROTO_COMPARE_TAG)
 
 .PHONY: generate-all
 generate-all: generate-structs proto ## Generate structs, protobufs
@@ -253,7 +258,7 @@ generate-structs: ## Update generated code
 .PHONY: proto
 proto: ## Generate protobuf bindings
 	@echo "==> Generating proto bindings..."
-	@buf --config tools/buf/buf.yaml --template tools/buf/buf.gen.yaml generate
+	@buf generate --config tools/buf/buf.yaml --template tools/buf/buf.gen.yaml
 
 # the update-changelog script mutates the local git filesystem,
 # so clone into a temp dir for a fresh worktree.
@@ -287,6 +292,7 @@ tidy: ## Tidy up the go mod files
 	@echo "==> Tidy up submodules"
 	@cd tools && go mod tidy
 	@cd api && go mod tidy
+	@cd jobspec2 && go mod tidy
 	@echo "==> Tidy nomad module"
 	@go-modtool -config=ci/modtool.toml fmt go.mod
 	@go mod tidy

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	log "github.com/hashicorp/go-hclog"
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 	"github.com/hashicorp/nomad/ci"
 	"github.com/hashicorp/nomad/client/allocrunner/interfaces"
 	"github.com/hashicorp/nomad/client/taskenv"
@@ -230,7 +230,6 @@ func TestMaxRunDurationHook_DoesNotFireWhenAllocNotEligible(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

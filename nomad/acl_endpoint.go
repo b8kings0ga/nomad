@@ -18,7 +18,7 @@ import (
 	cass "github.com/hashicorp/cap/oidc/clientassertion"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-memdb"
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 	"github.com/hashicorp/go-set/v3"
 	"github.com/hashicorp/nomad/acl"
 	policy "github.com/hashicorp/nomad/acl"
@@ -2803,12 +2803,12 @@ func (a *ACL) OIDCCompleteAuth(
 		return errors.New("exchanged token is not valid; potentially expired or empty")
 	}
 
-	var idTokenClaims map[string]interface{}
+	var idTokenClaims map[string]any
 	if err := oidcToken.IDToken().Claims(&idTokenClaims); err != nil {
 		return fmt.Errorf("failed to retrieve the ID token claims: %v", err)
 	}
 
-	var userClaims map[string]interface{}
+	var userClaims map[string]any
 	if !authMethod.Config.OIDCDisableUserInfo {
 		if userTokenSource := oidcToken.StaticTokenSource(); userTokenSource != nil {
 			if err := oidcProvider.UserInfo(ctx, userTokenSource, idTokenClaims["sub"].(string), &userClaims); err != nil {
@@ -2987,7 +2987,7 @@ func (a *ACL) Login(args *structs.ACLLoginRequest, reply *structs.ACLLoginRespon
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(aclLoginRequestExpiryTime))
 	defer cancel()
 
-	var claims map[string]interface{}
+	var claims map[string]any
 
 	// Validate the token depending on its method type
 	switch authMethod.Type {

@@ -491,7 +491,7 @@ func setupLocal(t *testing.T) rpc.ClientCodec {
 	mockCSI.NextListExternalSnapshotsError = fmt.Errorf("no plugins registered for type")
 
 	c1, cleanupC1 := client.TestRPCOnlyClient(t, nil, s1.config.RPCAddr,
-		map[string]interface{}{"CSI": mockCSI},
+		map[string]any{"CSI": mockCSI},
 	)
 	t.Cleanup(cleanupC1)
 

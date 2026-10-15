@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 )
 
 func (c *Command) setupTelemetry(config *Config) (*metrics.InmemSink, error) {

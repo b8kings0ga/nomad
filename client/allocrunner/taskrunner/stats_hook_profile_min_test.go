@@ -1,16 +1,17 @@
+//go:build nomad_min
+
 // Copyright IBM Corp. 2015, 2026
 // SPDX-License-Identifier: BUSL-1.1
-
-//go:build nomad_min
 
 package taskrunner
 
 import (
+	"testing"
+	"time"
+
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/client/config"
 	"github.com/hashicorp/nomad/nomad/structs"
-	"testing"
-	"time"
 )
 
 func TestMinMimcStatsOptIn(t *testing.T) {

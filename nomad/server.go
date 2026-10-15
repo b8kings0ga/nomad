@@ -23,7 +23,7 @@ import (
 	"time"
 
 	log "github.com/hashicorp/go-hclog"
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/raft"
 	autopilot "github.com/hashicorp/raft-autopilot"
@@ -220,7 +220,9 @@ type Server struct {
 	// transitions to collide and create inconsistent state.
 	brokerLock sync.Mutex
 
-	// reapCancelableEvalsCh is used to signal the cancelable evals reaper to wake up
+	// reapCancelableEvalsCh is used to signal the cancelable evals reaper
+	// goroutine to wake up. It is initialised once in NewServer and must not be
+	// reassigned.
 	reapCancelableEvalsCh chan struct{}
 
 	// deploymentWatcher is used to watch deployments and their allocations and
@@ -269,7 +271,7 @@ type Server struct {
 	workers          []*Worker
 	workerLock       sync.RWMutex
 	workerConfigLock sync.RWMutex
-	workersEventCh   chan interface{}
+	workersEventCh   chan any
 
 	// workerShutdownGroup tracks the running worker goroutines so that Shutdown()
 	// can wait on their completion
@@ -371,9 +373,9 @@ func NewServer(config *Config, consulCatalog consul.CatalogAPI, consulConfigFunc
 		reconcileCh:             make(chan serf.Member, 32),
 		readyForConsistentReads: &atomic.Bool{},
 		eventCh:                 make(chan serf.Event, 256),
-		reapCancelableEvalsCh:   make(chan struct{}),
+		reapCancelableEvalsCh:   make(chan struct{}, 1),
 		rpcTLS:                  incomingTLS,
-		workersEventCh:          make(chan interface{}, 1),
+		workersEventCh:          make(chan any, 1),
 		lockTTLTimer:            lock.NewTTLTimer(),
 		lockDelayTimer:          lock.NewDelayTimer(),
 	}
@@ -1930,7 +1932,7 @@ func (s *Server) Regions() []string {
 }
 
 // RPC is used to make a local RPC call
-func (s *Server) RPC(method string, args interface{}, reply interface{}) error {
+func (s *Server) RPC(method string, args any, reply any) error {
 	codec := &codec.InmemCodec{
 		Method: method,
 		Args:   args,

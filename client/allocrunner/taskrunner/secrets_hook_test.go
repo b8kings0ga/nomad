@@ -105,7 +105,14 @@ func TestSecretsHook_Prestart_Nomad(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		t.Cleanup(cancel)
 
-		err := secretHook.Prestart(ctx, req, &interfaces.TaskPrestartResponse{})
+		resp := &interfaces.TaskPrestartResponse{}
+		err := secretHook.Prestart(ctx, req, resp)
+
+		// PrestartDone must be false so we can recover tokens.
+		// firstRun is used to prevent multiple executions.
+		must.False(t, resp.Done)
+		must.False(t, secretHook.firstRun)
+
 		must.NoError(t, err)
 
 		expected := map[string]string{
@@ -183,6 +190,7 @@ func TestSecretsHook_Prestart_Nomad(t *testing.T) {
 		cancel() // cancel context to simulate task being stopped
 
 		err := secretHook.Prestart(ctx, req, &interfaces.TaskPrestartResponse{})
+
 		must.NoError(t, err)
 
 		expected := map[string]string{}
@@ -224,7 +232,7 @@ func TestSecretsHook_Prestart_Nomad(t *testing.T) {
 		}
 
 		// Prestart should error and return after building secrets
-		err := secretHook.Prestart(context.Background(), req, nil)
+		err := secretHook.Prestart(context.Background(), req, &interfaces.TaskPrestartResponse{})
 		must.Error(t, err)
 
 		expected := map[string]string{}
@@ -310,7 +318,13 @@ func TestSecretsHook_Prestart_Vault(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	t.Cleanup(cancel)
 
-	err := secretHook.Prestart(ctx, req, &interfaces.TaskPrestartResponse{})
+	resp := &interfaces.TaskPrestartResponse{}
+	err := secretHook.Prestart(ctx, req, resp)
+	// PrestartDone must be false so we can recover tokens.
+	// firstRun is used to prevent multiple executions.
+	must.False(t, resp.Done)
+	must.False(t, secretHook.firstRun)
+
 	must.NoError(t, err)
 
 	exp := map[string]string{
@@ -396,8 +410,14 @@ fi`
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		t.Cleanup(cancel)
 
-		err = secretHook.Prestart(ctx, req, &interfaces.TaskPrestartResponse{})
+		resp := &interfaces.TaskPrestartResponse{}
+		err = secretHook.Prestart(ctx, req, resp)
 		must.NoError(t, err)
+
+		// PrestartDone must be false so we can recover tokens.
+		// firstRun is used to prevent multiple executions.
+		must.False(t, resp.Done)
+		must.False(t, secretHook.firstRun)
 
 		exp := map[string]string{
 			"secret.test_secret0.jobID":     "test-jobid",

@@ -15,7 +15,7 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-memdb"
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/helper/uuid"
@@ -182,7 +182,7 @@ func (s *Server) leadershipTransferToServer(to structs.RaftIDAddress) error {
 	}
 	retryCount := 3
 	var lastError error
-	for i := 0; i < retryCount; i++ {
+	for i := range retryCount {
 		err := s.raft.LeadershipTransferToServer(to.ID, to.Address).Error()
 		if err == nil {
 			s.logger.Info("successfully transferred leadership")
@@ -221,7 +221,7 @@ func (s *Server) leadershipTransferToServer(to structs.RaftIDAddress) error {
 
 func (s *Server) leadershipTransfer() error {
 	retryCount := 3
-	for i := 0; i < retryCount; i++ {
+	for i := range retryCount {
 		err := s.raft.LeadershipTransfer().Error()
 		if err == nil {
 			s.logger.Info("successfully transferred leadership")
@@ -403,7 +403,7 @@ func (s *Server) establishLeadership(stopCh chan struct{}) error {
 	s.planQueue.SetEnabled(true)
 
 	// Start the plan evaluator
-	go s.planApply()
+	go s.planApply(s.GetConfig().PlanApplyPipeline)
 
 	// Start the eval broker and blocked eval broker if these are not paused by
 	// the operator.
@@ -455,7 +455,7 @@ func (s *Server) establishLeadership(stopCh chan struct{}) error {
 	go s.reapDupBlockedEvaluations(stopCh)
 
 	// Reap any cancelable evaluations
-	s.reapCancelableEvalsCh = s.reapCancelableEvaluations(stopCh)
+	go s.reapCancelableEvaluations(stopCh)
 
 	// Periodically unblock failed allocations
 	go s.periodicUnblockFailedEvals(stopCh)
@@ -526,8 +526,9 @@ func (s *Server) establishLeadership(stopCh chan struct{}) error {
 func (s *Server) replicateNamespaces(stopCh chan struct{}) {
 	req := structs.NamespaceListRequest{
 		QueryOptions: structs.QueryOptions{
-			Region:     s.config.AuthoritativeRegion,
-			AllowStale: true,
+			Region:        s.config.AuthoritativeRegion,
+			AllowStale:    true,
+			MinQueryIndex: 1,
 		},
 	}
 	limiter := rate.NewLimiter(replicationRateLimit, int(replicationRateLimit))
@@ -632,6 +633,9 @@ func diffNamespaces(state *state.StateStore, minIndex uint64, remoteList []*stru
 	// Construct a set of the local and remote namespaces
 	local := make(map[string][]byte)
 	remote := make(map[string]struct{})
+	if len(remoteList) == 0 {
+		return // prevent auth issues from wiping local state
+	}
 
 	// Add all the local namespaces
 	iter, err := state.Namespaces(nil)
@@ -676,8 +680,9 @@ func diffNamespaces(state *state.StateStore, minIndex uint64, remoteList []*stru
 func (s *Server) replicateNodePools(stopCh chan struct{}) {
 	req := structs.NodePoolListRequest{
 		QueryOptions: structs.QueryOptions{
-			Region:     s.config.AuthoritativeRegion,
-			AllowStale: true,
+			Region:        s.config.AuthoritativeRegion,
+			AllowStale:    true,
+			MinQueryIndex: 1,
 		},
 	}
 	limiter := rate.NewLimiter(replicationRateLimit, int(replicationRateLimit))
@@ -768,9 +773,13 @@ func (s *Server) replicateNodePools(stopCh chan struct{}) {
 // and the remote node pools to determine which node pools need to be deleted or
 // updated.
 func diffNodePools(store *state.StateStore, minIndex uint64, remoteList []*structs.NodePool) (delete []string, update []*structs.NodePool) {
+
 	// Construct a set of the local and remote node pools
 	local := make(map[string][]byte)
 	remote := make(map[string]struct{})
+	if len(remoteList) == 0 {
+		return // prevent auth issues from wiping local state
+	}
 
 	// Add all the local node pools
 	iter, err := store.NodePools(nil, state.SortDefault)
@@ -1186,29 +1195,24 @@ func (s *Server) reapDupBlockedEvaluations(stopCh chan struct{}) {
 // reapCancelableEvaluations is used to reap evaluations that were marked
 // cancelable by the eval broker and should be canceled. These get swept up
 // whenever an eval Acks, but this ensures that we don't have a straggling batch
-// when the cluster doesn't have any more work to do. Returns a wake-up channel
-// that can be used to trigger a new reap without waiting for the timer
-func (s *Server) reapCancelableEvaluations(stopCh chan struct{}) chan struct{} {
+// when the cluster doesn't have any more work to do. Wakes up whenever
+// s.reapCancelableEvalsCh is signalled or the configured interval elapses.
+func (s *Server) reapCancelableEvaluations(stopCh chan struct{}) {
 
-	wakeCh := make(chan struct{}, 1)
-	go func() {
+	timer, cancel := helper.NewSafeTimer(s.config.EvalReapCancelableInterval)
+	defer cancel()
 
-		timer, cancel := helper.NewSafeTimer(s.config.EvalReapCancelableInterval)
-		defer cancel()
-		for {
-			select {
-			case <-stopCh:
-				return
-			case <-wakeCh:
-				cancelCancelableEvals(s)
-			case <-timer.C:
-				cancelCancelableEvals(s)
-				timer.Reset(s.config.EvalReapCancelableInterval)
-			}
+	for {
+		select {
+		case <-stopCh:
+			return
+		case <-s.reapCancelableEvalsCh:
+			_ = cancelCancelableEvals(s)
+		case <-timer.C:
+			_ = cancelCancelableEvals(s)
+			timer.Reset(s.config.EvalReapCancelableInterval)
 		}
-	}()
-
-	return wakeCh
+	}
 }
 
 const cancelableEvalsBatchSize = 728 // structs.MaxUUIDsPerWriteRequest / 10

@@ -334,7 +334,7 @@ type License struct {
 	Product string
 
 	// License Specific Flags
-	Flags map[string]interface{}
+	Flags map[string]any
 
 	// Modules is a list of the licensed enterprise modules
 	Modules []string

@@ -247,7 +247,7 @@ func TestConsulFingerprint_segment(t *testing.T) {
 
 	t.Run("ok", func(t *testing.T) {
 		s, ok := cfs.segment(agentconsul.Self{
-			"Member": {"Tags": map[string]interface{}{"segment": "seg1"}},
+			"Member": {"Tags": map[string]any{"segment": "seg1"}},
 		})
 		must.True(t, ok)
 		must.Eq(t, "seg1", s)
@@ -255,7 +255,7 @@ func TestConsulFingerprint_segment(t *testing.T) {
 
 	t.Run("segment missing", func(t *testing.T) {
 		_, ok := cfs.segment(agentconsul.Self{
-			"Member": {"Tags": map[string]interface{}{}},
+			"Member": {"Tags": map[string]any{}},
 		})
 		must.False(t, ok)
 	})
@@ -269,7 +269,7 @@ func TestConsulFingerprint_segment(t *testing.T) {
 
 	t.Run("malformed", func(t *testing.T) {
 		_, ok := cfs.segment(agentconsul.Self{
-			"Member": {"Tags": map[string]interface{}{"segment": 9000}},
+			"Member": {"Tags": map[string]any{"segment": 9000}},
 		})
 		must.False(t, ok)
 	})
@@ -412,7 +412,7 @@ func TestConsulFingerprint_namespaces(t *testing.T) {
 
 	t.Run("supports namespaces", func(t *testing.T) {
 		value, ok := cfs.namespaces(agentconsul.Self{
-			"Stats": {"license": map[string]interface{}{"features": "Automated Backups, Automated Upgrades, Enhanced Read Scalability, Network Segments, Redundancy Zone, Advanced Network Federation, Namespaces, SSO, Audit Logging"}},
+			"Stats": {"license": map[string]any{"features": "Automated Backups, Automated Upgrades, Enhanced Read Scalability, Network Segments, Redundancy Zone, Advanced Network Federation, Namespaces, SSO, Audit Logging"}},
 		})
 		must.True(t, ok)
 		must.Eq(t, "true", value)
@@ -420,7 +420,7 @@ func TestConsulFingerprint_namespaces(t *testing.T) {
 
 	t.Run("no namespaces", func(t *testing.T) {
 		value, ok := cfs.namespaces(agentconsul.Self{
-			"Stats": {"license": map[string]interface{}{"features": "Automated Backups, Automated Upgrades, Enhanced Read Scalability, Network Segments, Redundancy Zone, Advanced Network Federation, SSO, Audit Logging"}},
+			"Stats": {"license": map[string]any{"features": "Automated Backups, Automated Upgrades, Enhanced Read Scalability, Network Segments, Redundancy Zone, Advanced Network Federation, SSO, Audit Logging"}},
 		})
 		must.True(t, ok)
 		must.Eq(t, "false", value)
@@ -440,7 +440,7 @@ func TestConsulFingerprint_namespaces(t *testing.T) {
 	})
 
 	t.Run("features missing", func(t *testing.T) {
-		value, ok := cfs.namespaces(agentconsul.Self{"Stats": {"license": map[string]interface{}{}}})
+		value, ok := cfs.namespaces(agentconsul.Self{"Stats": {"license": map[string]any{}}})
 		must.True(t, ok)
 		must.Eq(t, "false", value)
 	})

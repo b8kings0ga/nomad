@@ -4,8 +4,9 @@
 package client
 
 import (
-	"github.com/hashicorp/nomad/client/servers"
 	"testing"
+
+	"github.com/hashicorp/nomad/client/servers"
 )
 
 func TestAppendBootstrapServersKeepsAlternateAddress(t *testing.T) {

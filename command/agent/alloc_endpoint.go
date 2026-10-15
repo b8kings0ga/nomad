@@ -28,7 +28,7 @@ const (
 	resourceNotFoundErr = "resource not found"
 )
 
-func (s *HTTPServer) AllocsRequest(resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) AllocsRequest(resp http.ResponseWriter, req *http.Request) (any, error) {
 	if req.Method != http.MethodGet {
 		return nil, CodedError(405, ErrInvalidMethod)
 	}
@@ -73,7 +73,7 @@ func (s *HTTPServer) AllocsRequest(resp http.ResponseWriter, req *http.Request) 
 	return out.Allocations, nil
 }
 
-func (s *HTTPServer) AllocSpecificRequest(resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) AllocSpecificRequest(resp http.ResponseWriter, req *http.Request) (any, error) {
 	reqSuffix := strings.TrimPrefix(req.URL.Path, "/v1/allocation/")
 
 	// tokenize the suffix of the path to get the alloc id and find the action
@@ -100,7 +100,7 @@ func (s *HTTPServer) AllocSpecificRequest(resp http.ResponseWriter, req *http.Re
 	return nil, CodedError(404, resourceNotFoundErr)
 }
 
-func (s *HTTPServer) allocGet(allocID string, resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) allocGet(allocID string, resp http.ResponseWriter, req *http.Request) (any, error) {
 	if req.Method != http.MethodGet {
 		return nil, CodedError(405, ErrInvalidMethod)
 	}
@@ -142,7 +142,7 @@ func (s *HTTPServer) allocGet(allocID string, resp http.ResponseWriter, req *htt
 	return alloc, nil
 }
 
-func (s *HTTPServer) allocStop(allocID string, resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) allocStop(allocID string, resp http.ResponseWriter, req *http.Request) (any, error) {
 	if !(req.Method == http.MethodPost || req.Method == http.MethodPut) {
 		return nil, CodedError(405, ErrInvalidMethod)
 	}
@@ -187,7 +187,7 @@ func (s *HTTPServer) allocStop(allocID string, resp http.ResponseWriter, req *ht
 // /v1/allocation/:alloc_id/services HTTP API and uses the
 // structs.AllocServiceRegistrationsRPCMethod RPC method.
 func (s *HTTPServer) allocServiceRegistrations(
-	resp http.ResponseWriter, req *http.Request, allocID string) (interface{}, error) {
+	resp http.ResponseWriter, req *http.Request, allocID string) (any, error) {
 
 	// The endpoint only supports GET requests.
 	if req.Method != http.MethodGet {
@@ -215,7 +215,7 @@ func (s *HTTPServer) allocServiceRegistrations(
 	return reply.Services, nil
 }
 
-func (s *HTTPServer) ClientAllocRequest(resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) ClientAllocRequest(resp http.ResponseWriter, req *http.Request) (any, error) {
 	reqSuffix := strings.TrimPrefix(req.URL.Path, "/v1/client/allocation/")
 
 	// tokenize the suffix of the path to get the alloc id and find the action
@@ -268,7 +268,7 @@ func (s *HTTPServer) ClientServicesRequest(_ http.ResponseWriter, req *http.Requ
 	return client.LocalServiceRegistrations(), nil
 }
 
-func (s *HTTPServer) ClientGCRequest(resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) ClientGCRequest(resp http.ResponseWriter, req *http.Request) (any, error) {
 
 	// Build the request and get the requested Node ID
 	args := structs.NodeSpecificRequest{}
@@ -300,7 +300,7 @@ func (s *HTTPServer) ClientGCRequest(resp http.ResponseWriter, req *http.Request
 	return nil, rpcErr
 }
 
-func (s *HTTPServer) allocRestart(allocID string, resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) allocRestart(allocID string, resp http.ResponseWriter, req *http.Request) (any, error) {
 	// Build the request and parse the ACL token
 	args := structs.AllocRestartRequest{
 		AllocID:  allocID,
@@ -313,8 +313,7 @@ func (s *HTTPServer) allocRestart(allocID string, resp http.ResponseWriter, req 
 		TaskName string
 		AllTasks bool
 	}
-	err := json.NewDecoder(req.Body).Decode(&reqBody)
-	if err != nil && err != io.EOF {
+	if err := decodeBody(req, &reqBody); err != nil && !errors.Is(err, errNoBody) {
 		return nil, err
 	}
 	if reqBody.TaskName != "" {
@@ -341,7 +340,7 @@ func (s *HTTPServer) allocRestart(allocID string, resp http.ResponseWriter, req 
 	}
 
 	if rpcErr != nil {
-		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) {
+		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) || structs.IsErrUnknownNode(rpcErr) {
 			rpcErr = CodedError(404, rpcErr.Error())
 		}
 	}
@@ -349,7 +348,7 @@ func (s *HTTPServer) allocRestart(allocID string, resp http.ResponseWriter, req 
 	return reply, rpcErr
 }
 
-func (s *HTTPServer) allocGC(allocID string, resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) allocGC(allocID string, resp http.ResponseWriter, req *http.Request) (any, error) {
 	// Build the request and parse the ACL token
 	args := structs.AllocSpecificRequest{
 		AllocID: allocID,
@@ -373,7 +372,7 @@ func (s *HTTPServer) allocGC(allocID string, resp http.ResponseWriter, req *http
 	}
 
 	if rpcErr != nil {
-		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) {
+		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) || structs.IsErrUnknownNode(rpcErr) {
 			rpcErr = CodedError(404, rpcErr.Error())
 		}
 	}
@@ -381,7 +380,7 @@ func (s *HTTPServer) allocGC(allocID string, resp http.ResponseWriter, req *http
 	return nil, rpcErr
 }
 
-func (s *HTTPServer) allocSignal(allocID string, resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) allocSignal(allocID string, resp http.ResponseWriter, req *http.Request) (any, error) {
 	if !(req.Method == http.MethodPost || req.Method == http.MethodPut) {
 		return nil, CodedError(405, ErrInvalidMethod)
 	}
@@ -412,7 +411,7 @@ func (s *HTTPServer) allocSignal(allocID string, resp http.ResponseWriter, req *
 	}
 
 	if rpcErr != nil {
-		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) {
+		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) || structs.IsErrUnknownNode(rpcErr) {
 			rpcErr = CodedError(404, rpcErr.Error())
 		}
 	}
@@ -420,7 +419,7 @@ func (s *HTTPServer) allocSignal(allocID string, resp http.ResponseWriter, req *
 	return reply, rpcErr
 }
 
-func (s *HTTPServer) allocPause(allocID string, resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) allocPause(allocID string, resp http.ResponseWriter, req *http.Request) (any, error) {
 	switch req.Method {
 	case http.MethodPost, http.MethodPut:
 		return s.allocPauseSet(allocID, resp, req)
@@ -457,7 +456,7 @@ func (s *HTTPServer) allocPauseGet(allocID string, resp http.ResponseWriter, req
 	}
 
 	if rpcErr != nil {
-		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) {
+		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) || structs.IsErrUnknownNode(rpcErr) {
 			rpcErr = CodedError(404, rpcErr.Error())
 		}
 	}
@@ -477,8 +476,7 @@ func (s *HTTPServer) allocPauseSet(allocID string, resp http.ResponseWriter, req
 		Task          string
 		ScheduleState string
 	}
-	err := json.NewDecoder(req.Body).Decode(&reqBody)
-	if err != nil && err != io.EOF {
+	if err := decodeBody(req, &reqBody); err != nil && !errors.Is(err, errNoBody) {
 		return nil, err
 	}
 	args.Task = reqBody.Task
@@ -511,7 +509,7 @@ func (s *HTTPServer) allocPauseSet(allocID string, resp http.ResponseWriter, req
 	}
 
 	if rpcErr != nil {
-		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) {
+		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) || structs.IsErrUnknownNode(rpcErr) {
 			rpcErr = CodedError(404, rpcErr.Error())
 		}
 	}
@@ -519,7 +517,7 @@ func (s *HTTPServer) allocPauseSet(allocID string, resp http.ResponseWriter, req
 	return reply, rpcErr
 }
 
-func (s *HTTPServer) allocSnapshot(allocID string, resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) allocSnapshot(allocID string, resp http.ResponseWriter, req *http.Request) (any, error) {
 	var secret string
 	s.parseToken(req, &secret)
 	if !s.agent.Client().ValidateMigrateToken(allocID, secret) {
@@ -536,7 +534,7 @@ func (s *HTTPServer) allocSnapshot(allocID string, resp http.ResponseWriter, req
 	return nil, nil
 }
 
-func (s *HTTPServer) allocStats(allocID string, resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) allocStats(allocID string, resp http.ResponseWriter, req *http.Request) (any, error) {
 
 	// Build the request and parse the ACL token
 	task := req.URL.Query().Get("task")
@@ -563,7 +561,7 @@ func (s *HTTPServer) allocStats(allocID string, resp http.ResponseWriter, req *h
 	}
 
 	if rpcErr != nil {
-		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) {
+		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) || structs.IsErrUnknownNode(rpcErr) {
 			rpcErr = CodedError(404, rpcErr.Error())
 		}
 	}
@@ -596,7 +594,7 @@ func (s *HTTPServer) allocChecks(allocID string, resp http.ResponseWriter, req *
 	}
 
 	if rpcErr != nil {
-		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) {
+		if structs.IsErrNoNodeConn(rpcErr) || structs.IsErrUnknownAllocation(rpcErr) || structs.IsErrUnknownNode(rpcErr) {
 			rpcErr = CodedError(404, rpcErr.Error())
 		}
 	}
@@ -604,7 +602,7 @@ func (s *HTTPServer) allocChecks(allocID string, resp http.ResponseWriter, req *
 	return reply.Results, rpcErr
 }
 
-func (s *HTTPServer) allocExec(allocID string, resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (s *HTTPServer) allocExec(allocID string, resp http.ResponseWriter, req *http.Request) (any, error) {
 	// Build the request and parse the ACL token
 	task := req.URL.Query().Get("task")
 	cmdJsonStr := req.URL.Query().Get("command")

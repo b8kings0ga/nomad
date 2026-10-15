@@ -4,6 +4,7 @@
 package agent
 
 import (
+	"crypto/fips140"
 	"flag"
 	"fmt"
 	"io"
@@ -22,7 +23,7 @@ import (
 
 	"github.com/hashicorp/cli"
 	hclog "github.com/hashicorp/go-hclog"
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 	gsyslog "github.com/hashicorp/go-syslog"
 	"github.com/hashicorp/nomad/helper"
 	flaghelper "github.com/hashicorp/nomad/helper/flags"
@@ -874,10 +875,12 @@ func (c *Command) Run(args []string) int {
 	info["bind addrs"] = c.getBindAddrSynopsis()
 	info["advertise addrs"] = c.getAdvertiseAddrSynopsis()
 	if config.Server.Enabled {
-		serverConfig, err := c.agent.serverConfig()
-		if err == nil {
-			info["node id"] = serverConfig.NodeID
-		}
+		info["node id"] = c.agent.server.GetConfig().NodeID
+	}
+	if fips140.Enforced() {
+		info["fips mode"] = fmt.Sprintf("FIPS-140-3 enforced (version: %s)", fips140.Version())
+	} else if fips140.Enabled() {
+		info["fips mode"] = fmt.Sprintf("FIPS-140-3 enabled (version: %s)", fips140.Version())
 	}
 
 	// Sort the keys for output

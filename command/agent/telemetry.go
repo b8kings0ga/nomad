@@ -6,10 +6,10 @@
 package agent
 
 import (
-	metrics "github.com/hashicorp/go-metrics/compat"
-	"github.com/hashicorp/go-metrics/compat/circonus"
-	"github.com/hashicorp/go-metrics/compat/datadog"
-	"github.com/hashicorp/go-metrics/compat/prometheus"
+	metrics "github.com/hashicorp/go-metrics"
+	"github.com/hashicorp/go-metrics/circonus"
+	"github.com/hashicorp/go-metrics/datadog"
+	"github.com/hashicorp/go-metrics/prometheus"
 )
 
 func (c *Command) setupTelemetry(config *Config) (*metrics.InmemSink, error) {

@@ -1188,7 +1188,7 @@ func TestCSIVolumeEndpoint_Create(t *testing.T) {
 			c.Servers = []string{srv.config.RPCAddr.String()}
 			c.TLSConfig = srv.config.TLSConfig
 		},
-		map[string]interface{}{"CSI": fake},
+		map[string]any{"CSI": fake},
 	)
 	defer cleanup()
 
@@ -1346,7 +1346,7 @@ func TestCSIVolumeEndpoint_Delete(t *testing.T) {
 		func(c *cconfig.Config) {
 			c.Servers = []string{srv.config.RPCAddr.String()}
 		},
-		map[string]interface{}{"CSI": fake},
+		map[string]any{"CSI": fake},
 	)
 	defer cleanup()
 
@@ -1511,7 +1511,7 @@ func TestCSIVolumeEndpoint_ListExternal(t *testing.T) {
 		func(c *cconfig.Config) {
 			c.Servers = []string{srv.config.RPCAddr.String()}
 		},
-		map[string]interface{}{"CSI": fake},
+		map[string]any{"CSI": fake},
 	)
 	defer cleanup()
 
@@ -1608,7 +1608,7 @@ func TestCSIVolumeEndpoint_CreateSnapshot(t *testing.T) {
 		func(c *cconfig.Config) {
 			c.Servers = []string{srv.config.RPCAddr.String()}
 		},
-		map[string]interface{}{"CSI": fake},
+		map[string]any{"CSI": fake},
 	)
 	defer cleanup()
 
@@ -1701,7 +1701,7 @@ func TestCSIVolumeEndpoint_DeleteSnapshot(t *testing.T) {
 		func(c *cconfig.Config) {
 			c.Servers = []string{srv.config.RPCAddr.String()}
 		},
-		map[string]interface{}{"CSI": fake},
+		map[string]any{"CSI": fake},
 	)
 	defer cleanup()
 
@@ -1810,7 +1810,7 @@ func TestCSIVolumeEndpoint_ListSnapshots(t *testing.T) {
 		func(c *cconfig.Config) {
 			c.Servers = []string{srv.config.RPCAddr.String()}
 		},
-		map[string]interface{}{"CSI": fake},
+		map[string]any{"CSI": fake},
 	)
 	defer cleanup()
 
@@ -2401,7 +2401,7 @@ func TestCSI_SerializedControllerRPC(t *testing.T) {
 	go testFn("plugin1", 50*time.Millisecond)
 
 	totals := map[string]time.Duration{}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		pair := <-timeCh
 		totals[pair.First] += pair.Second
 	}
@@ -2465,7 +2465,7 @@ func testClientWithCSI(t *testing.T, srv *Server) (c *client.Client, m *MockClie
 				},
 			}
 		},
-		map[string]interface{}{"CSI": m}, // MockClientCSI
+		map[string]any{"CSI": m}, // MockClientCSI
 	)
 	t.Cleanup(func() { test.NoError(t, cleanup()) })
 	testutil.WaitForClient(t, srv.RPC, c.NodeID(), c.Region())

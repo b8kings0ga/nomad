@@ -7,10 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/hashicorp/go-memdb"
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/nomad/acl"
 	"github.com/hashicorp/nomad/nomad/state"
@@ -263,10 +264,8 @@ func (n *NodePool) DeleteNodePools(args *structs.NodePoolDeleteRequest, reply *s
 	if len(args.Names) == 0 {
 		return structs.NewErrRPCCodedf(http.StatusBadRequest, "must specify at least one node pool to delete")
 	}
-	for _, name := range args.Names {
-		if name == "" {
-			return structs.NewErrRPCCodedf(http.StatusBadRequest, "node pool name is empty")
-		}
+	if slices.Contains(args.Names, "") {
+		return structs.NewErrRPCCodedf(http.StatusBadRequest, "node pool name is empty")
 	}
 
 	// Verify that the node pools we're deleting do not have nodes or

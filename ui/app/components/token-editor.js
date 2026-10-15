@@ -51,32 +51,16 @@ export default class TokenEditorComponent extends Component {
     return role?.id || role?.name;
   }
 
-  @action updateTokenPolicies(policy, event) {
-    let { checked } = event.target;
-    const key = this.policyKey(policy);
-
-    if (checked) {
-      if (!this.tokenPolicies.some((p) => this.policyKey(p) === key)) {
-        this.tokenPolicies = [...this.tokenPolicies, policy];
-      }
-    } else {
-      this.tokenPolicies = this.tokenPolicies.filter(
-        (p) => this.policyKey(p) !== key,
-      );
-    }
+  @action onPoliciesSelectionChange({ selectedRowsKeys }) {
+    this.tokenPolicies = selectedRowsKeys
+      .map((name) => this.args.policies.find((p) => this.policyKey(p) === name))
+      .filter(Boolean);
   }
 
-  @action updateTokenRoles(role, event) {
-    let { checked } = event.target;
-    const key = this.roleKey(role);
-
-    if (checked) {
-      if (!this.tokenRoles.some((r) => this.roleKey(r) === key)) {
-        this.tokenRoles = [...this.tokenRoles, role];
-      }
-    } else {
-      this.tokenRoles = this.tokenRoles.filter((r) => this.roleKey(r) !== key);
-    }
+  @action onRolesSelectionChange({ selectedRowsKeys }) {
+    this.tokenRoles = selectedRowsKeys
+      .map((name) => this.args.roles.find((r) => r?.name === name))
+      .filter(Boolean);
   }
 
   @action updateTokenType(event) {
@@ -148,10 +132,14 @@ export default class TokenEditorComponent extends Component {
         this.activeToken.roles = [];
       }
 
-      if (this.tokenRegion === 'global') {
-        this.activeToken.global = true;
-      } else {
-        this.activeToken.global = false;
+      // Only set global property for new tokens
+      // Existing tokens cannot toggle global mode
+      if (this.activeToken.isNew) {
+        if (this.tokenRegion === 'global') {
+          this.activeToken.global = true;
+        } else {
+          this.activeToken.global = false;
+        }
       }
 
       // Sets to "never" for auto-selecting the radio button;

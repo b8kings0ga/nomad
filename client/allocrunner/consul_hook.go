@@ -172,6 +172,7 @@ func (h *consulHook) prepareConsulTokensForTask(task *structs.Task, tg *structs.
 			AuthMethodName: consulConfig.TaskIdentityAuthMethod,
 			Meta: map[string]string{
 				"requested_by": fmt.Sprintf("nomad_task_%s", task.Name),
+				"node_id":      h.alloc.NodeID,
 			},
 		}
 
@@ -227,6 +228,7 @@ func (h *consulHook) prepareConsulTokensForServices(services []*structs.Service,
 				AuthMethodName: consulConfig.ServiceIdentityAuthMethod,
 				Meta: map[string]string{
 					"requested_by": fmt.Sprintf("nomad_service_%s", ti.InterpolatedWorkloadIdentifier),
+					"node_id":      h.alloc.NodeID,
 				},
 			}
 

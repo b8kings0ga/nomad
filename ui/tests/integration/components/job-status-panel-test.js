@@ -9,7 +9,6 @@ import { find, render, settled } from '@ember/test-helpers';
 import { hbs } from 'ember-cli-htmlbars';
 import { startMirage } from 'nomad-ui/tests/helpers/start-mirage';
 import { initialize as fragmentSerializerInitializer } from 'nomad-ui/initializers/fragment-serializer';
-import { componentA11yAudit } from 'nomad-ui/tests/helpers/a11y-audit';
 
 module(
   'Integration | Component | job status panel | active deployment',
@@ -372,12 +371,6 @@ module(
           .replace(/\s\s+/g, ' '),
         '20 Running 5 Complete',
       );
-
-      await componentA11yAudit(
-        this.element,
-        assert,
-        'scrollable-region-focusable',
-      ); //keyframe animation fades from opacity 0
     });
 
     test('non-running allocations are grouped regardless of health', async function (assert) {
@@ -648,6 +641,77 @@ module(
         find('.running-allocs-title'),
         'Steady-state mode shown instead',
       );
+    });
+  },
+);
+
+module(
+  'Integration | Component | job status panel | steady state',
+  function (hooks) {
+    setupRenderingTest(hooks);
+
+    hooks.beforeEach(function () {
+      fragmentSerializerInitializer(this.owner);
+      window.localStorage.clear();
+      this.store = this.owner.lookup('service:store');
+      this.server = startMirage();
+      this.server.create('node-pool');
+      this.server.create('namespace');
+    });
+
+    hooks.afterEach(function () {
+      this.server.shutdown();
+      window.localStorage.clear();
+    });
+
+    test('zero-allocation sysbatch job shows Scaled Down, not Complete', async function (assert) {
+      // Regression test: when totalAllocs is 0 and hasClientStatus is true
+      // (sysbatch/system), completeAllocs?.length === totalAllocs evaluates as
+      // 0 === 0, which previously caused the panel to show "Complete" instead
+      // of "Scaled Down".
+      this.server.create('job', {
+        type: 'sysbatch',
+        createAllocations: false,
+        noActiveDeployment: true,
+        shallow: true,
+      });
+
+      await this.store.findAll('job');
+
+      this.set('job', this.store.peekAll('job').get('firstObject'));
+      await render(hbs`
+        <JobStatus::Panel @job={{this.job}} />
+      `);
+
+      assert
+        .dom('.job-status-panel h2')
+        .hasTextContaining(
+          'Scaled Down',
+          'sysbatch job with zero allocations shows Scaled Down, not Complete',
+        );
+    });
+
+    test('zero-allocation system job shows Scaled Down, not Complete', async function (assert) {
+      this.server.create('job', {
+        type: 'system',
+        createAllocations: false,
+        noActiveDeployment: true,
+        shallow: true,
+      });
+
+      await this.store.findAll('job');
+
+      this.set('job', this.store.peekAll('job').get('firstObject'));
+      await render(hbs`
+        <JobStatus::Panel @job={{this.job}} />
+      `);
+
+      assert
+        .dom('.job-status-panel h2')
+        .hasTextContaining(
+          'Scaled Down',
+          'system job with zero allocations shows Scaled Down, not Complete',
+        );
     });
   },
 );

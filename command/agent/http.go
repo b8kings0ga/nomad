@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -25,7 +26,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/go-connlimit"
 	log "github.com/hashicorp/go-hclog"
-	metrics "github.com/hashicorp/go-metrics/compat"
+	metrics "github.com/hashicorp/go-metrics"
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/rs/cors"
@@ -60,6 +61,10 @@ const (
 	// UUID from context
 	MissingRequestID = "<missing request id>"
 
+	// ProtoHttp2 is the name used within the TLS configuration to
+	// enable HTTP/2.
+	ProtoHttp2 = "h2"
+
 	contentTypeHeader = "Content-Type"
 	plainContentType  = "text/plain; charset=utf-8"
 )
@@ -82,9 +87,12 @@ var (
 			AllowCredentials: true,
 		})
 	}
+
+	// errNoBody is used during decoding when a request body is empty.
+	errNoBody = errors.New("Request body is empty")
 )
 
-type handlerFn func(resp http.ResponseWriter, req *http.Request) (interface{}, error)
+type handlerFn func(resp http.ResponseWriter, req *http.Request) (any, error)
 type handlerByteFn func(resp http.ResponseWriter, req *http.Request) ([]byte, error)
 
 type RPCer interface {
@@ -149,6 +157,32 @@ func NewHTTPServers(agent *Agent, config *Config) ([]*HTTPServer, error) {
 	wsUpgrader := &websocket.Upgrader{
 		ReadBufferSize:  2048,
 		WriteBufferSize: 2048,
+		Subprotocols:    []string{websocketProtocolWatcher},
+	}
+
+	// If running in dev mode and the option to disable the websocket origin check is unset
+	// then disable the origin check. Otherwise, only disable if it has been explicitly set
+	// in the configuration. Disabling of the origin check is useful when doing UI development
+	// and using the ember proxy to reach an agent in dev mode or a local cluster.
+	if (config.DevMode && config.HTTPDisableWebSocketOriginCheck == nil) ||
+		(config.HTTPDisableWebSocketOriginCheck != nil && *config.HTTPDisableWebSocketOriginCheck) {
+		wsUpgrader.CheckOrigin = func(*http.Request) bool {
+			return true
+		}
+	}
+
+	protocols := new(http.Protocols)
+
+	// Specify which protocols are enabled for the HTTP
+	// server. HTTP1 is always enabled.
+	protocols.SetHTTP1(true)
+	// Enable HTTP2 unless it has been disabled in the configuration.
+	if !config.HTTPDisableHTTP2 {
+		protocols.SetHTTP2(true)
+		// If TLS is not enabled for HTTP, make HTTP2 available over cleartext.
+		if !config.TLSConfig.EnableHTTP {
+			protocols.SetUnencryptedHTTP2(true)
+		}
 	}
 
 	// Start the listener
@@ -170,6 +204,9 @@ func NewHTTPServers(agent *Agent, config *Config) ([]*HTTPServer, error) {
 			if err != nil {
 				serverInitializationErrors = multierror.Append(serverInitializationErrors, err)
 				continue
+			}
+			if !config.HTTPDisableHTTP2 {
+				tlsConfig.NextProtos = []string{ProtoHttp2}
 			}
 			ln = tls.NewListener(tcpKeepAliveListener{ln.(*net.TCPListener)}, tlsConfig)
 		}
@@ -193,6 +230,7 @@ func NewHTTPServers(agent *Agent, config *Config) ([]*HTTPServer, error) {
 			Handler:   handlers.CompressHandler(srv.mux),
 			ConnState: makeConnState(config.TLSConfig.EnableHTTP, handshakeTimeout, maxConns, &connCount, srv.logger),
 			ErrorLog:  newHTTPServerLogger(srv.logger),
+			Protocols: protocols,
 		}
 
 		go func() {
@@ -243,9 +281,10 @@ func NewHTTPServers(agent *Agent, config *Config) ([]*HTTPServer, error) {
 
 		// builtinServer adds a wrapper to always authenticate requests
 		httpServer := http.Server{
-			Addr:     srv.Addr,
-			Handler:  newAuthMiddleware(srv, srv.mux),
-			ErrorLog: newHTTPServerLogger(srv.logger),
+			Addr:      srv.Addr,
+			Handler:   newAuthMiddleware(srv, srv.mux),
+			ErrorLog:  newHTTPServerLogger(srv.logger),
+			Protocols: protocols,
 		}
 
 		agent.taskAPIServer.SetServer(&httpServer)
@@ -737,6 +776,10 @@ func (s *HTTPServer) wrap(handler handlerFn) func(resp http.ResponseWriter, req 
 			obj, err = s.wrapWebsocketHandler(s.auditHandler(handler))(resp, req)
 		} else {
 			obj, err = s.auditHandler(handler)(resp, req)
+			// Add a header which informs of the protocol being used. This allows
+			// the UI to detect when HTTP2 is being used allowing it to disable
+			// websocket usage for blocking requests.
+			resp.Header().Add("X-Nomad-Protocol", req.Proto)
 		}
 
 		// Check for an error
@@ -847,15 +890,34 @@ func isAPIClientError(code int) bool {
 	return 400 <= code && code <= 499
 }
 
-// decodeBody is used to decode a JSON request body
-func decodeBody(req *http.Request, out interface{}) error {
-
-	if req.Body == http.NoBody {
-		return errors.New("Request body is empty")
+// decodeBody is used to decode a JSON request body. If
+// the request does not contain a body, errNoBody will
+// be returned.
+func decodeBody(req *http.Request, out any) error {
+	// For HTTP/1 requests, an empty body can be set
+	// to the http.NoBody value, so check for that.
+	if req.Body == nil || req.Body == http.NoBody {
+		return errNoBody
 	}
 
 	dec := json.NewDecoder(req.Body)
-	return dec.Decode(&out)
+	err := dec.Decode(&out)
+
+	// If the decoding was successful, just return.
+	if err == nil {
+		return nil
+	}
+
+	// If the body was empty (either 0 bytes read or
+	// only whitespace read) then an EOF error will
+	// be returned. This will be the case for HTTP/2
+	// requests which set an empty reader.
+	if errors.Is(err, io.EOF) {
+		return errNoBody
+	}
+
+	// Return the actual decoding error encountered.
+	return err
 }
 
 // setIndex is used to set the index response header
@@ -1147,7 +1209,7 @@ func (s *HTTPServer) parseWriteRequest(req *http.Request, w *structs.WriteReques
 // setting Content-Types that a browser may render (eg text/html). Any API that
 // returns service-generated content (eg /v1/client/fs/cat) must be wrapped.
 func (s *HTTPServer) wrapUntrustedContent(handler handlerFn) handlerFn {
-	return func(resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+	return func(resp http.ResponseWriter, req *http.Request) (any, error) {
 		resp, closeWriter := noxssrw.NewResponseWriter(resp)
 		defer func() {
 			if _, err := closeWriter(); err != nil {
