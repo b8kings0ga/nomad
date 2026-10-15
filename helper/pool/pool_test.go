@@ -4,6 +4,7 @@
 package pool
 
 import (
+	"container/list"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"math"
 	"net"
 	"net/rpc"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -107,6 +109,58 @@ func TestRPCConnectionFailureMarksRequestNotSent(t *testing.T) {
 	err = p.RPC("global", addr, "ServiceRegistration.Upsert", nil, nil)
 	if !errors.Is(err, ErrRPCNotSent) {
 		t.Fatalf("missing unsent proof: %v", err)
+	}
+}
+
+func TestStreamingRPCReleasesConnection(t *testing.T) {
+	for _, closed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("closed_session=%t", closed), func(t *testing.T) {
+			local, remote := net.Pipe()
+			client, err := yamux.Client(local, nil)
+			must.NoError(t, err)
+			server, err := yamux.Server(remote, nil)
+			must.NoError(t, err)
+			t.Cleanup(func() { client.Close(); server.Close() })
+			p := newTestPool(t)
+			t.Cleanup(func() { p.Shutdown() })
+			addr := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 12345}
+			conn := &Conn{addr: addr, session: client, pool: p, clients: list.New()}
+			now := time.Now()
+			conn.lastUsed.Store(&now)
+			p.pool[addr.String()] = conn
+			if closed {
+				client.Close()
+			}
+			stream, err := p.StreamingRPC("global", addr)
+			if closed {
+				must.Error(t, err)
+				must.Eq(t, int32(0), atomic.LoadInt32(&conn.refCount))
+				return
+			}
+			must.NoError(t, err)
+			peer, err := server.Accept()
+			must.NoError(t, err)
+			defer peer.Close()
+			var mode [1]byte
+			_, err = io.ReadFull(peer, mode[:])
+			must.NoError(t, err)
+			must.Eq(t, byte(RpcStreaming), mode[0])
+			must.Eq(t, int32(1), atomic.LoadInt32(&conn.refCount))
+			var wg sync.WaitGroup
+			for range 8 {
+				wg.Add(1)
+				go func() { defer wg.Done(); stream.Close() }()
+			}
+			wg.Wait()
+			must.Eq(t, int32(0), atomic.LoadInt32(&conn.refCount))
+			must.False(t, client.IsClosed())
+			next, err := p.StreamingRPC("global", addr)
+			must.NoError(t, err)
+			must.NoError(t, next.Close())
+			must.Eq(t, int32(0), atomic.LoadInt32(&conn.refCount))
+			p.clearConn(conn)
+			must.True(t, client.IsClosed())
+		})
 	}
 }
 
