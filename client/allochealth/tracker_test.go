@@ -479,7 +479,7 @@ func TestTracker_Succeeded_PostStart_Healthy(t *testing.T) {
 	tracker.Start()
 
 	select {
-	case <-time.After(alloc.Job.TaskGroups[0].Migrate.MinHealthyTime * 2):
+	case <-time.After(4 * checkInterval):
 		require.Fail(t, "timed out while waiting for health")
 	case h := <-tracker.HealthyCh():
 		require.True(t, h)
@@ -750,7 +750,11 @@ func TestTracker_ConsulChecks_SlowCheckRegistration(t *testing.T) {
 	// start the tracker and wait for evaluations to happen
 	tracker.Start()
 	must.Wait(t, wait.InitialSuccess(
-		wait.BoolFunc(func() bool { return hits.Load() > 10 }),
+		wait.BoolFunc(func() bool {
+			tracker.lock.Lock()
+			defer tracker.lock.Unlock()
+			return hits.Load() > 10 && tracker.checksHealthy
+		}),
 		wait.Gap(10*time.Millisecond),
 		wait.Timeout(1*time.Second),
 	))
