@@ -174,6 +174,70 @@ func TestConnPoolShutdownRejectsConnections(t *testing.T) {
 	}
 }
 
+func TestConnPoolTLSReloadRejectsInFlightConnection(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	must.NoError(t, err)
+	t.Cleanup(func() { listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				io.Copy(io.Discard, conn)
+			}()
+		}
+	}()
+
+	p := newTestPool(t)
+	t.Cleanup(func() { p.Shutdown() })
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+	p.tlsWrap = func(_ string, conn net.Conn) (net.Conn, error) {
+		close(started)
+		<-release
+		return conn, nil
+	}
+	done := make(chan error, 1)
+	go func() {
+		conn, err := p.acquire("global", listener.Addr())
+		if conn != nil {
+			conn.releaseUse()
+		}
+		done <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("old TLS connection setup did not start")
+	}
+	var newWrapperCalls atomic.Int32
+	p.ReloadTLS(func(_ string, conn net.Conn) (net.Conn, error) {
+		newWrapperCalls.Add(1)
+		return conn, nil
+	})
+	unblock()
+	select {
+	case err := <-done:
+		must.Error(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("old TLS connection setup did not finish")
+	}
+	p.Lock()
+	remaining := len(p.pool)
+	p.Unlock()
+	must.Eq(t, 0, remaining)
+	conn, err := p.acquire("global", listener.Addr())
+	must.NoError(t, err)
+	conn.releaseUse()
+	must.Eq(t, int32(1), newWrapperCalls.Load())
+}
+
 func TestStreamingRPCReleasesConnection(t *testing.T) {
 	for _, closed := range []bool{false, true} {
 		t.Run(fmt.Sprintf("closed_session=%t", closed), func(t *testing.T) {

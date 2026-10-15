@@ -62,7 +62,8 @@ type Conn struct {
 	session  *yamux.Session
 	lastUsed atomic.Pointer[time.Time]
 
-	pool *ConnPool
+	pool          *ConnPool
+	tlsGeneration uint64
 
 	clients    *list.List
 	clientLock sync.Mutex
@@ -211,7 +212,8 @@ type ConnPool struct {
 	limiter map[string]chan struct{}
 
 	// TLS wrapper
-	tlsWrap tlsutil.RegionWrapper
+	tlsWrap       tlsutil.RegionWrapper
+	tlsGeneration uint64
 
 	// yamuxCfg is used for setup rpc client
 	yamuxCfg *yamux.Config
@@ -303,6 +305,7 @@ func (p *ConnPool) ReloadTLS(tlsWrap tlsutil.RegionWrapper) {
 	}
 	p.pool = make(map[string]*Conn)
 	p.tlsWrap = tlsWrap
+	p.tlsGeneration++
 }
 
 // SetConnListener is used to listen to new connections being made. The
@@ -378,6 +381,11 @@ func (p *ConnPool) acquireContext(ctx context.Context, region string, addr net.A
 			c.Close()
 			return nil, fmt.Errorf("rpc error: shutdown")
 		}
+		if c.tlsGeneration != p.tlsGeneration {
+			p.Unlock()
+			c.Close()
+			return nil, fmt.Errorf("rpc error: TLS configuration changed during connection setup")
+		}
 
 		p.pool[addr.String()] = c
 
@@ -423,6 +431,12 @@ func (p *ConnPool) getNewConn(region string, addr net.Addr) (*Conn, error) {
 // getNewConnContext establishes a new pooled session while honoring the
 // request context throughout connection setup.
 func (p *ConnPool) getNewConnContext(ctx context.Context, region string, addr net.Addr) (*Conn, error) {
+	// Capture one configuration for the entire setup. ReloadTLS may replace it
+	// concurrently; acquireContext rejects sessions from an older generation.
+	p.Lock()
+	tlsWrap, tlsGeneration := p.tlsWrap, p.tlsGeneration
+	p.Unlock()
+
 	// Try to dial the conn
 	dialer := net.Dialer{Timeout: p.dialTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", addr.String())
@@ -442,7 +456,7 @@ func (p *ConnPool) getNewConnContext(ctx context.Context, region string, addr ne
 	}
 
 	// Check if TLS is enabled
-	if p.tlsWrap != nil {
+	if tlsWrap != nil {
 		// Switch the connection into TLS mode
 		if _, err := conn.Write([]byte{byte(RpcTLS)}); err != nil {
 			conn.Close()
@@ -450,7 +464,7 @@ func (p *ConnPool) getNewConnContext(ctx context.Context, region string, addr ne
 		}
 
 		// Wrap the connection in a TLS client
-		tlsConn, err := p.tlsWrap(region, conn)
+		tlsConn, err := tlsWrap(region, conn)
 		if err != nil {
 			conn.Close()
 			return nil, err
@@ -473,12 +487,13 @@ func (p *ConnPool) getNewConnContext(ctx context.Context, region string, addr ne
 
 	// Wrap the connection
 	c := &Conn{
-		refCount: 1,
-		addr:     addr,
-		session:  session,
-		clients:  list.New(),
-		lastUsed: atomic.Pointer[time.Time]{},
-		pool:     p,
+		refCount:      1,
+		addr:          addr,
+		session:       session,
+		clients:       list.New(),
+		lastUsed:      atomic.Pointer[time.Time]{},
+		pool:          p,
+		tlsGeneration: tlsGeneration,
 	}
 
 	now := time.Now()
