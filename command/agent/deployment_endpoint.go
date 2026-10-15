@@ -21,7 +21,7 @@ func (s *HTTPServer) DeploymentsRequest(resp http.ResponseWriter, req *http.Requ
 	}
 
 	var out structs.DeploymentListResponse
-	if err := s.agent.RPC("Deployment.List", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Deployment.List", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -189,7 +189,7 @@ func (s *HTTPServer) deploymentAllocations(resp http.ResponseWriter, req *http.R
 	}
 
 	var out structs.AllocListResponse
-	if err := s.agent.RPC("Deployment.Allocations", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Deployment.Allocations", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -216,7 +216,7 @@ func (s *HTTPServer) deploymentQuery(resp http.ResponseWriter, req *http.Request
 	}
 
 	var out structs.SingleDeploymentResponse
-	if err := s.agent.RPC("Deployment.GetDeployment", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Deployment.GetDeployment", &args, &out); err != nil {
 		return nil, err
 	}
 

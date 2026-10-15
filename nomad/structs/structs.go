@@ -5,6 +5,7 @@ package structs
 
 import (
 	"bytes"
+	"context"
 	"crypto/fips140"
 	"crypto/md5"
 	"crypto/sha1"
@@ -330,6 +331,8 @@ type QueryOptions struct {
 	Reverse bool
 
 	identity *AuthenticatedIdentity
+	// queryContext is local transport state and is never serialized.
+	queryContext context.Context
 
 	InternalRpcInfo
 }
@@ -346,6 +349,14 @@ func (q QueryOptions) TimeToBlock() time.Duration {
 		return DefaultBlockingRPCQueryTime
 	}
 	return q.MaxQueryTime
+}
+
+func (q QueryOptions) QueryContext() context.Context {
+	return q.queryContext
+}
+
+func (q *QueryOptions) SetQueryContext(ctx context.Context) {
+	q.queryContext = ctx
 }
 
 func (q *QueryOptions) SetTimeToBlock(t time.Duration) {

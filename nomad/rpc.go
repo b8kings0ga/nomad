@@ -455,26 +455,32 @@ func (r *rpcHandler) handleMultiplex(ctx context.Context, conn net.Conn, rpcCtx 
 // handleNomadConn is used to service a single Nomad RPC connection
 func (r *rpcHandler) handleNomadConn(ctx context.Context, conn net.Conn, server *rpc.Server) {
 	defer conn.Close()
-	rpcCodec := pool.NewServerCodec(conn)
-	for {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
 		select {
-		case <-ctx.Done():
-			r.logger.Info("closing server RPC connection")
-			return
 		case <-r.srv.shutdownCh:
-			return
-		default:
+			cancel()
+		case <-ctx.Done():
 		}
+	}()
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
+	// ServeCodec keeps reading headers while a query waits. This lets peer EOF
+	// cancel the decoded query, rather than waiting for its full blocking TTL.
+	server.ServeCodec(&countedRPCCodec{ServerCodec: pool.NewServerCodecContext(ctx, conn)})
+}
 
-		if err := server.ServeRequest(rpcCodec); err != nil {
-			if err != io.EOF && !strings.Contains(err.Error(), "closed") {
-				r.logger.Error("RPC error", "error", err, "connection", conn)
-				metrics.IncrCounter([]string{"nomad", "rpc", "request_error"}, 1)
-			}
-			return
-		}
+type countedRPCCodec struct{ rpc.ServerCodec }
+
+func (c *countedRPCCodec) WriteResponse(response *rpc.Response, body any) error {
+	err := c.ServerCodec.WriteResponse(response, body)
+	if err == nil {
 		metrics.IncrCounter([]string{"nomad", "rpc", "request"}, 1)
+	} else {
+		metrics.IncrCounter([]string{"nomad", "rpc", "request_error"}, 1)
 	}
+	return err
 }
 
 // handleStreamingConn is used to handle a single Streaming Nomad RPC connection.
@@ -601,7 +607,7 @@ func (r *rpcHandler) forward(method string, info structs.RPCInfo, args any, repl
 		return false, nil
 	}
 
-	remoteServer, err := r.getLeaderForRPC()
+	remoteServer, err := r.getLeaderForRPCContext(queryContext(args))
 	if err != nil {
 		return true, err
 	}
@@ -622,9 +628,16 @@ func (r *rpcHandler) forward(method string, info structs.RPCInfo, args any, repl
 // it blocks until it is ready to handle consistent RPC invocations.  If leader
 // is not known or consistency isn't guaranteed, an error is returned.
 func (r *rpcHandler) getLeaderForRPC() (*peers.Parts, error) {
+	return r.getLeaderForRPCContext(context.Background())
+}
+
+func (r *rpcHandler) getLeaderForRPCContext(ctx context.Context) (*peers.Parts, error) {
 	var firstCheck time.Time
 
 CHECK_LEADER:
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Find the leader
 	isLeader, remoteServer := r.srv.getLeader()
 
@@ -647,6 +660,8 @@ CHECK_LEADER:
 		select {
 		case <-time.After(jitter):
 			goto CHECK_LEADER
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		case <-r.srv.shutdownCh:
 		}
 	}
@@ -686,7 +701,7 @@ func (r *rpcHandler) forwardLeader(server *peers.Parts, method string, args any,
 	if server == nil {
 		return structs.ErrNoLeader
 	}
-	return r.srv.connPool.RPC(r.srv.config.Region, server.Addr, method, args, reply)
+	return r.srv.connPool.RPCContext(queryContext(args), r.srv.config.Region, server.Addr, method, args, reply)
 }
 
 // forwardServer is used to forward an RPC call to a particular server
@@ -695,7 +710,7 @@ func (r *rpcHandler) forwardServer(server *peers.Parts, method string, args any,
 	if server == nil {
 		return errors.New("must be given a valid server address")
 	}
-	return r.srv.connPool.RPC(r.srv.config.Region, server.Addr, method, args, reply)
+	return r.srv.connPool.RPCContext(queryContext(args), r.srv.config.Region, server.Addr, method, args, reply)
 }
 
 func (r *rpcHandler) findRegionServer(region string) (*peers.Parts, error) {
@@ -720,7 +735,16 @@ func (r *rpcHandler) forwardRegion(region, method string, args any, reply any) e
 
 	// Forward to remote Nomad
 	metrics.IncrCounter([]string{"nomad", "rpc", "cross-region", region}, 1)
-	return r.srv.connPool.RPC(region, server.Addr, method, args, reply)
+	return r.srv.connPool.RPCContext(queryContext(args), region, server.Addr, method, args, reply)
+}
+
+func queryContext(args any) context.Context {
+	if query, ok := args.(interface{ QueryContext() context.Context }); ok {
+		if ctx := query.QueryContext(); ctx != nil {
+			return ctx
+		}
+	}
+	return context.Background()
 }
 
 func (r *rpcHandler) getServer(region, serverID string) (*peers.Parts, error) {
@@ -851,7 +875,11 @@ type blockingOptions struct {
 // blockingRPC is used for queries that need to wait for a
 // minimum index. This is used to block and wait for changes.
 func (r *rpcHandler) blockingRPC(opts *blockingOptions) error {
-	ctx := context.Background()
+	parent := opts.queryOpts.QueryContext()
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx := parent
 	var cancel context.CancelFunc
 	var state *state.StateStore
 
@@ -866,10 +894,13 @@ func (r *rpcHandler) blockingRPC(opts *blockingOptions) error {
 	opts.queryOpts.MaxQueryTime += helper.RandomStagger(opts.queryOpts.MaxQueryTime / structs.JitterFraction)
 
 	// Setup a query timeout
-	ctx, cancel = context.WithTimeout(context.Background(), opts.queryOpts.MaxQueryTime)
+	ctx, cancel = context.WithTimeout(parent, opts.queryOpts.MaxQueryTime)
 	defer cancel()
 
 RUN_QUERY:
+	if err := parent.Err(); err != nil {
+		return err
+	}
 	// Update the query meta data
 	r.setQueryMeta(opts.queryMeta)
 
@@ -902,6 +933,9 @@ RUN_QUERY:
 		if err := ws.WatchCtx(ctx); err == nil {
 			goto RUN_QUERY
 		}
+	}
+	if parent.Err() != nil {
+		return parent.Err()
 	}
 	return err
 }

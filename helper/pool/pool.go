@@ -42,6 +42,43 @@ func NewServerCodec(conn io.ReadWriteCloser) rpc.ServerCodec {
 	return msgpackrpc.NewCodecFromHandle(true, true, conn, structs.MsgpackHandle)
 }
 
+// NewServerCodecContext cancels blocking reads when the peer closes its RPC
+// stream. The context is attached after decoding and never crosses the wire.
+func NewServerCodecContext(ctx context.Context, conn io.ReadWriteCloser) rpc.ServerCodec {
+	ctx, cancel := context.WithCancel(ctx)
+	return &queryContextCodec{ServerCodec: NewServerCodec(conn), ctx: ctx, cancel: cancel}
+}
+
+type queryContextCodec struct {
+	rpc.ServerCodec
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+func (c *queryContextCodec) ReadRequestHeader(request *rpc.Request) error {
+	err := c.ServerCodec.ReadRequestHeader(request)
+	if err != nil {
+		c.cancel()
+	}
+	return err
+}
+
+func (c *queryContextCodec) ReadRequestBody(args any) error {
+	if err := c.ServerCodec.ReadRequestBody(args); err != nil {
+		c.cancel()
+		return err
+	}
+	if query, ok := args.(interface{ SetQueryContext(context.Context) }); ok {
+		query.SetQueryContext(c.ctx)
+	}
+	return nil
+}
+
+func (c *queryContextCodec) Close() error {
+	c.cancel()
+	return c.ServerCodec.Close()
+}
+
 // streamClient is used to wrap a stream with an RPC client
 type StreamClient struct {
 	stream net.Conn

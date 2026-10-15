@@ -9,12 +9,55 @@ import (
 	"github.com/hashicorp/nomad/acl"
 	"github.com/hashicorp/nomad/ci"
 	"github.com/hashicorp/nomad/client/config"
+	"github.com/hashicorp/nomad/client/state"
 	"github.com/hashicorp/nomad/nomad"
 	"github.com/hashicorp/nomad/nomad/mock"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/testutil"
 	"github.com/shoenig/test/must"
 )
+
+type metadataWriteCounter struct {
+	state.NoopDB
+	writes int
+}
+
+func (s *metadataWriteCounter) PutNodeMeta(map[string]*string) error {
+	s.writes++
+	return nil
+}
+
+func TestNodeMeta_IdenticalUpdatesAreNoops(t *testing.T) {
+	db := new(metadataWriteCounter)
+	c := &Client{
+		config:            &config.Config{Node: mock.Node()},
+		stateDB:           db,
+		metaDynamic:       map[string]*string{},
+		metaStatic:        map[string]string{},
+		triggerNodeUpdate: make(chan struct{}, 8),
+	}
+	endpoint := newNodeMetaEndpoint(c)
+	request := &structs.NodeMetaApplyRequest{Meta: map[string]*string{"service_ready": new("true")}}
+	var response structs.NodeMetaResponse
+	must.NoError(t, endpoint.Apply(request, &response))
+	must.Eq(t, 1, len(c.triggerNodeUpdate))
+	<-c.triggerNodeUpdate
+	request.Meta["service_ready"] = new("true")
+	must.NoError(t, endpoint.Apply(request, &response))
+	must.Eq(t, 0, len(c.triggerNodeUpdate))
+	must.Eq(t, 1, db.writes)
+	request.Meta["service_ready"] = new("false")
+	must.NoError(t, endpoint.Apply(request, &response))
+	must.Eq(t, 1, len(c.triggerNodeUpdate))
+	<-c.triggerNodeUpdate
+	request.Meta["service_ready"] = nil
+	must.NoError(t, endpoint.Apply(request, &response))
+	must.Eq(t, 1, len(c.triggerNodeUpdate))
+	<-c.triggerNodeUpdate
+	must.NoError(t, endpoint.Apply(request, &response))
+	must.Eq(t, 0, len(c.triggerNodeUpdate))
+	must.Eq(t, 3, db.writes)
+}
 
 func TestNodeMeta_ACL(t *testing.T) {
 	ci.Parallel(t)
@@ -82,7 +125,7 @@ func TestNodeMeta_Validation(t *testing.T) {
 
 	// An empty map is an error
 	err := c1.ClientRPC("NodeMeta.Apply", applyReq, &resp)
-	must.ErrorContains(t, err, "missing required Meta")
+	must.ErrorContains(t, err, "missing required capability, health, or Meta object")
 
 	// empty keys are prohibited
 	applyReq.Meta[""] = new("bad")

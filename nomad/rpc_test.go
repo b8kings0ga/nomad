@@ -86,6 +86,72 @@ func rpcClientWithTLS(t testing.TB, srv *Server, cfg *config.TLSConfig) rpc.Clie
 	return pool.NewClientCodec(tlsConn)
 }
 
+func TestRPCContextCancelsLocalBlockingQuery(t *testing.T) {
+	s, cleanup := TestServer(t, nil)
+	defer cleanup()
+	testutil.WaitForLeader(t, s.RPC)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	request := &structs.NodeListRequest{QueryOptions: structs.QueryOptions{
+		Region: "global", MinQueryIndex: math.MaxUint64, MaxQueryTime: time.Minute,
+	}}
+	start := time.Now()
+	err := s.RPCContext(ctx, "Node.List", request, &structs.NodeListResponse{})
+	must.True(t, errors.Is(err, context.DeadlineExceeded))
+	must.Nil(t, request.QueryContext())
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("canceled query took %s", elapsed)
+	}
+	// A normal blocking-query timeout must retain its successful response.
+	request.MaxQueryTime = time.Millisecond
+	must.NoError(t, s.RPC("Node.List", request, &structs.NodeListResponse{}))
+}
+
+type contextQueryProbe struct{ started chan struct{} }
+
+func (p *contextQueryProbe) Wait(request structs.NodeListRequest, _ *string) error {
+	close(p.started)
+	<-request.QueryContext().Done()
+	return request.QueryContext().Err()
+}
+
+func TestRPCContextPeerCloseStopsServerHandler(t *testing.T) {
+	local, remote := net.Pipe()
+	defer local.Close()
+	defer remote.Close()
+	probe := &contextQueryProbe{started: make(chan struct{})}
+	server := rpc.NewServer()
+	must.NoError(t, server.RegisterName("Probe", probe))
+	handler := &rpcHandler{srv: &Server{shutdownCh: make(chan struct{})}}
+	done := make(chan struct{})
+	go func() {
+		handler.handleNomadConn(context.Background(), remote, server)
+		close(done)
+	}()
+	client := pool.NewClientCodec(local)
+	callDone := make(chan struct{})
+	go func() {
+		msgpackrpc.CallWithCodec(client, "Probe.Wait", &structs.NodeListRequest{}, new(string))
+		close(callDone)
+	}()
+	select {
+	case <-probe.started:
+	case <-time.After(time.Second):
+		t.Fatal("query did not start")
+	}
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("server query survived peer disconnect")
+	}
+	select {
+	case <-callDone:
+	case <-time.After(time.Second):
+		t.Fatal("client call did not exit")
+	}
+}
+
 func Test_newRpcHandler(t *testing.T) {
 
 	// Generate a custom yamux configuration, so we can ensure this gets stored

@@ -113,7 +113,7 @@ func (s *HTTPServer) allocGet(allocID string, resp http.ResponseWriter, req *htt
 	}
 
 	var out structs.SingleAllocResponse
-	if err := s.agent.RPC("Alloc.GetAlloc", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Alloc.GetAlloc", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -203,7 +203,7 @@ func (s *HTTPServer) allocServiceRegistrations(
 
 	// Perform the RPC request.
 	var reply structs.AllocServiceRegistrationsResponse
-	if err := s.agent.RPC(structs.AllocServiceRegistrationsRPCMethod, &args, &reply); err != nil {
+	if err := s.agent.RPCContext(req.Context(), structs.AllocServiceRegistrationsRPCMethod, &args, &reply); err != nil {
 		return nil, err
 	}
 

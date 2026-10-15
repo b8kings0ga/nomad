@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/ci"
 	"github.com/hashicorp/nomad/helper/testlog"
+	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/yamux"
 	"github.com/shoenig/test/must"
 )
@@ -312,6 +313,14 @@ func (s *poolRPCService) Ping(_ struct{}, reply *string) error {
 	return nil
 }
 
+func (s *poolRPCService) WaitQuery(args structs.NodeListRequest, _ *string) error {
+	s.active.Add(1)
+	defer s.active.Add(-1)
+	s.hangStarted <- struct{}{}
+	<-args.QueryContext().Done()
+	return args.QueryContext().Err()
+}
+
 func startPoolRPCServer(t *testing.T, service *poolRPCService) (net.Addr, *atomic.Int32) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -352,7 +361,7 @@ func startPoolRPCServer(t *testing.T, service *poolRPCService) (net.Addr, *atomi
 							_ = stream.Close()
 							return
 						}
-						rpcServer.ServeCodec(NewServerCodec(stream))
+						rpcServer.ServeCodec(NewServerCodecContext(context.Background(), stream))
 					}()
 				}
 			}()
@@ -400,4 +409,38 @@ func TestConnPool_RPCContextDeadlinePreservesSharedSession(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	must.Eq(t, int32(0), service.active.Load())
+}
+
+func TestConnPool_RPCContextCancelsRemoteQuery(t *testing.T) {
+	service := &poolRPCService{hangStarted: make(chan struct{}, 1)}
+	addr, accepted := startPoolRPCServer(t, service)
+	p := newTestPool(t)
+	t.Cleanup(func() { p.Shutdown() })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- p.RPCContext(ctx, "global", addr, "Test.WaitQuery", &structs.NodeListRequest{}, new(string))
+	}()
+	select {
+	case <-service.hangStarted:
+	case <-time.After(time.Second):
+		t.Fatal("remote query did not start")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		must.True(t, errors.Is(err, context.Canceled))
+	case <-time.After(time.Second):
+		t.Fatal("caller did not return")
+	}
+	deadline := time.Now().Add(time.Second)
+	for service.active.Load() != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	must.Eq(t, int32(0), service.active.Load())
+	var reply string
+	must.NoError(t, p.RPC("global", addr, "Test.Ping", struct{}{}, &reply))
+	must.Eq(t, "pong", reply)
+	must.Eq(t, int32(1), accepted.Load())
 }

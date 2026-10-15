@@ -30,7 +30,7 @@ func (s *HTTPServer) NodesRequest(resp http.ResponseWriter, req *http.Request) (
 	args.Fields = fields
 
 	var out structs.NodeListResponse
-	if err := s.agent.RPC("Node.List", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Node.List", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -96,7 +96,7 @@ func (s *HTTPServer) nodeAllocations(resp http.ResponseWriter, req *http.Request
 	}
 
 	var out structs.NodeAllocsResponse
-	if err := s.agent.RPC("Node.GetAllocs", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Node.GetAllocs", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -187,7 +187,7 @@ func (s *HTTPServer) nodeQuery(resp http.ResponseWriter, req *http.Request,
 	}
 
 	var out structs.SingleNodeResponse
-	if err := s.agent.RPC("Node.GetNode", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Node.GetNode", &args, &out); err != nil {
 		return nil, err
 	}
 

@@ -53,7 +53,7 @@ func (s *HTTPServer) jobListRequest(resp http.ResponseWriter, req *http.Request)
 	}
 
 	var out structs.JobListResponse
-	if err := s.agent.RPC("Job.List", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Job.List", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -270,7 +270,7 @@ func (s *HTTPServer) jobAllocations(resp http.ResponseWriter, req *http.Request,
 	}
 
 	var out structs.JobAllocationsResponse
-	if err := s.agent.RPC("Job.Allocations", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Job.Allocations", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -296,7 +296,7 @@ func (s *HTTPServer) jobEvaluations(resp http.ResponseWriter, req *http.Request,
 	}
 
 	var out structs.JobEvaluationsResponse
-	if err := s.agent.RPC("Job.Evaluations", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Job.Evaluations", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -321,7 +321,7 @@ func (s *HTTPServer) jobDeployments(resp http.ResponseWriter, req *http.Request,
 	}
 
 	var out structs.DeploymentListResponse
-	if err := s.agent.RPC("Job.Deployments", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Job.Deployments", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -344,7 +344,7 @@ func (s *HTTPServer) jobLatestDeployment(resp http.ResponseWriter, req *http.Req
 	}
 
 	var out structs.SingleDeploymentResponse
-	if err := s.agent.RPC("Job.LatestDeployment", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Job.LatestDeployment", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -529,7 +529,7 @@ func (s *HTTPServer) jobQuery(resp http.ResponseWriter, req *http.Request, jobID
 	}
 
 	var out structs.SingleJobResponse
-	if err := s.agent.RPC("Job.GetJob", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Job.GetJob", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -703,7 +703,7 @@ func (s *HTTPServer) jobScaleStatus(resp http.ResponseWriter, req *http.Request,
 	}
 
 	var out structs.JobScaleStatusResponse
-	if err := s.agent.RPC("Job.ScaleStatus", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Job.ScaleStatus", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -789,7 +789,7 @@ func (s *HTTPServer) jobVersions(resp http.ResponseWriter, req *http.Request, jo
 	}
 
 	var out structs.JobVersionsResponse
-	if err := s.agent.RPC("Job.GetJobVersions", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Job.GetJobVersions", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -866,7 +866,7 @@ func (s *HTTPServer) jobSummaryRequest(resp http.ResponseWriter, req *http.Reque
 	}
 
 	var out structs.JobSummaryResponse
-	if err := s.agent.RPC("Job.Summary", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Job.Summary", &args, &out); err != nil {
 		return nil, err
 	}
 
