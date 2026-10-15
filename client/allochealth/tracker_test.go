@@ -1039,8 +1039,13 @@ func TestTracker_ConsulChecks_OnUpdate(t *testing.T) {
 			tracker.checkLookupInterval = checkInterval
 			tracker.Start()
 
+			// Positive results need a scheduling deadline, not a poll-count budget.
+			waitForHealth := 4 * checkInterval
+			if tc.expectedPass {
+				waitForHealth = time.Second
+			}
 			select {
-			case <-time.After(4 * checkInterval):
+			case <-time.After(waitForHealth):
 				if !tc.expectedPass {
 					// tracker should still be running
 					require.Nil(t, tracker.ctx.Err())
@@ -1055,7 +1060,9 @@ func TestTracker_ConsulChecks_OnUpdate(t *testing.T) {
 			select {
 			case <-tracker.ctx.Done():
 				// Ok, tracker should exit after reporting healthy
-			default:
+			case <-time.After(time.Second):
+				// Health is sent before cancellation in the publishing goroutine.
+				// Receiving the notification does not synchronize its next step.
 				require.Fail(t, "expected tracker to exit after reporting healthy")
 			}
 		})
@@ -1158,8 +1165,13 @@ func TestTracker_NomadChecks_OnUpdate(t *testing.T) {
 			tracker.checkLookupInterval = 10 * time.Millisecond
 			tracker.Start()
 
+			// Positive results need a scheduling deadline, not a poll-count budget.
+			waitForHealth := 8 * tracker.checkLookupInterval
+			if tc.expectedPass {
+				waitForHealth = time.Second
+			}
 			select {
-			case <-time.After(8 * tracker.checkLookupInterval):
+			case <-time.After(waitForHealth):
 				if !tc.expectedPass {
 					// tracker should still be running
 					must.NoError(t, tracker.ctx.Err())
@@ -1174,7 +1186,8 @@ func TestTracker_NomadChecks_OnUpdate(t *testing.T) {
 			select {
 			case <-tracker.ctx.Done():
 				// Ok, tracker should exit after reporting healthy
-			default:
+			case <-time.After(time.Second):
+				// Health publication precedes cancellation in another goroutine.
 				t.Fatal("expected tracker to exit after reporting healthy")
 			}
 		})

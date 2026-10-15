@@ -532,7 +532,11 @@ func (c *Client) Ping(srv net.Addr) error {
 		},
 	}
 	var reply struct{}
-	err := c.connPool.RPC(c.Region(), srv, "Status.Ping", pingRequest, &reply)
+	// Keep the deployed health-ping response bound when using the shared
+	// context-aware pool. A stalled server must not block route selection.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := c.connPool.RPCContext(ctx, c.Region(), srv, "Status.Ping", pingRequest, &reply)
 	return err
 }
 

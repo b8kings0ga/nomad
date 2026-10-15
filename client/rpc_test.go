@@ -362,3 +362,33 @@ func TestRPCUnsentRequestTriesAlternateAfterDialBudget(t *testing.T) {
 		t.Fatalf("unsent first attempt did not reach alternate: %v", err)
 	}
 }
+
+// Catch accidental use of the unbounded legacy pool entry point.
+type pingDeadlineTestPool struct{ contextTestRPCPool }
+
+func (p *pingDeadlineTestPool) RPC(string, net.Addr, string, interface{}, interface{}) error {
+	return errors.New("health ping bypassed its context deadline")
+}
+
+func TestRPCPingRetainsTenSecondDeadline(t *testing.T) {
+	want := errors.New("server answered with an error")
+	var observed context.Context
+	p := &pingDeadlineTestPool{contextTestRPCPool: contextTestRPCPool{call: func(ctx context.Context) error {
+		observed = ctx
+		deadline, ok := ctx.Deadline()
+		remaining := time.Until(deadline)
+		if !ok || remaining <= 9*time.Second || remaining > 10*time.Second {
+			t.Fatalf("health ping lost its deployed ten second bound: %v %v", ok, remaining)
+		}
+		return want
+	}}}
+	c := newContextTestClient(t, time.Minute, p)
+	c.identity.Store("test-node-identity")
+	err := c.Ping(&net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 4647})
+	if !errors.Is(err, want) || p.calls.Load() != 1 {
+		t.Fatalf("ping response changed or retried: %v calls=%d", err, p.calls.Load())
+	}
+	if observed == nil || !errors.Is(observed.Err(), context.Canceled) {
+		t.Fatal("completed ping retained its deadline timer")
+	}
+}
