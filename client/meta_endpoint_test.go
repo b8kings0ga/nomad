@@ -82,7 +82,7 @@ func TestNodeMeta_Validation(t *testing.T) {
 
 	// An empty map is an error
 	err := c1.ClientRPC("NodeMeta.Apply", applyReq, &resp)
-	must.ErrorContains(t, err, "missing required Meta")
+	must.ErrorContains(t, err, "missing required capability, health, or Meta object")
 
 	// empty keys are prohibited
 	applyReq.Meta[""] = new("bad")
