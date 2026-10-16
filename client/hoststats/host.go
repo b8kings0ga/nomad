@@ -219,8 +219,16 @@ func (h *HostStatsCollector) collectDeviceGroupStats() []*DeviceGroupStats {
 // Stats returns the host stats that has been collected
 func (h *HostStatsCollector) Stats() *HostStats {
 	h.hostStatsLock.RLock()
-	defer h.hostStatsLock.RUnlock()
+	stats := h.hostStats
+	h.hostStatsLock.RUnlock()
+	if stats != nil {
+		return stats
+	}
 
+	// Initial collection mutates the CPU calculators and bad-partition map.
+	// Concurrent first RPCs must initialize them under an exclusive lock.
+	h.hostStatsLock.Lock()
+	defer h.hostStatsLock.Unlock()
 	if h.hostStats == nil {
 		if err := h.collectLocked(); err != nil {
 			h.logger.Warn("error fetching host resource usage stats", "error", err)
