@@ -151,9 +151,11 @@ type Client struct {
 	// 	// <mutate newConfig>
 	// 	c.config = newConfig
 	// 	c.configLock.Unlock()
-	configLock  sync.Mutex
-	config      *config.Config
-	metaDynamic map[string]*string // dynamic node metadata
+	// Serialize durable metadata writes separately: config readers drive heartbeats.
+	metaWriteLock sync.Mutex
+	configLock    sync.Mutex
+	config        *config.Config
+	metaDynamic   map[string]*string // dynamic node metadata
 
 	// metaStatic are the Node's static metadata set via the agent configuration
 	// and defaults during client initialization. Since this map is never updated
