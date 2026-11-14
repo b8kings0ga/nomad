@@ -1,6 +1,12 @@
-name: nomad_min weekly release
+name: nomad_min CI and release
 
 on:
+  pull_request:
+    branches:
+      - nomad-min
+  push:
+    branches:
+      - nomad-min
   workflow_dispatch:
     inputs:
       upstream_ref:
@@ -25,7 +31,7 @@ concurrency:
 
 jobs:
   verify:
-    if: inputs.verify_only
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || inputs.verify_only
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -43,7 +49,7 @@ jobs:
         run: scripts/nomad-min/verify.sh
 
   sync-build-package:
-    if: ${{ !inputs.verify_only }}
+    if: ${{ github.event_name != 'pull_request' && github.event_name != 'push' && !inputs.verify_only }}
     runs-on: ubuntu-24.04
     env:
       GH_REPO: ${{ github.repository }}

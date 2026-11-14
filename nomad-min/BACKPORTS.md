@@ -43,3 +43,13 @@ client reconnect integration test. All failure groups reproduced on the unchange
 The verification script selects the backport-specific cases rather than claiming
 that these broader suites pass. Linux-only mount/cgroup runtime tests and UI
 browser tests were not run locally. No release or cluster rollout was performed.
+
+### Fork CI
+
+Only `.github/workflows/nomad-min-upstream.yml` is retained as an executable
+workflow in this fork. Pull requests targeting `nomad-min`, pushes to that branch,
+and manual `verify_only` runs execute `scripts/nomad-min/verify.sh` on a hosted
+Linux runner. These events do not synchronize upstream or publish releases.
+The existing scheduled/manual release path is retained separately in the same
+workflow. Inherited HashiCorp workflows are disabled and removed from this fork;
+they are not part of its merge checks.
