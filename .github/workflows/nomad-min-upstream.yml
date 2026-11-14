@@ -1,12 +1,23 @@
-name: nomad_min weekly release
+name: nomad_min CI and release
 
 on:
+  pull_request:
+    branches:
+      - nomad-min
+  push:
+    branches:
+      - nomad-min
   workflow_dispatch:
     inputs:
       upstream_ref:
         description: Upstream stable tag or commit; empty means latest stable tag
         required: false
         type: string
+      verify_only:
+        description: Verify the selected branch without upstream sync or publishing
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: "17 4 * * 1"
 
@@ -19,7 +30,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || inputs.verify_only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CI: "true"
+      GOMAXPROCS: "2"
+      GOFLAGS: "-p=2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+      - name: Verify candidate source
+        run: scripts/nomad-min/verify.sh
+
   sync-build-package:
+    if: ${{ github.event_name != 'pull_request' && github.event_name != 'push' && !inputs.verify_only }}
     runs-on: ubuntu-24.04
     env:
       GH_REPO: ${{ github.repository }}
