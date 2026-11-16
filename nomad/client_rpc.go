@@ -72,14 +72,22 @@ func (s *Server) connectedNodes() map[string]time.Time {
 }
 
 // addNodeConn adds the mapping between a node and its session.
-func (s *Server) addNodeConn(ctx *RPCContext) {
+func (s *Server) addNodeConn(ctx *RPCContext, nodeID string) {
 	// Hotpath the no-op
-	if ctx == nil || ctx.NodeID == "" {
+	if ctx == nil || nodeID == "" {
 		return
 	}
 
 	s.nodeConnsLock.Lock()
 	defer s.nodeConnsLock.Unlock()
+
+	// Bind the connection once, atomically with caching it. A multiplexed
+	// connection can receive concurrent registrations or close before a
+	// registration finishes authenticating.
+	if ctx.nodeConnClosed || ctx.NodeID != "" {
+		return
+	}
+	ctx.NodeID = nodeID
 
 	// Capture the tracked connections so far
 	currentConns := s.nodeConns[ctx.NodeID]
@@ -105,12 +113,16 @@ func (s *Server) addNodeConn(ctx *RPCContext) {
 // removeNodeConn removes the mapping between a node and its session.
 func (s *Server) removeNodeConn(ctx *RPCContext) {
 	// Hotpath the no-op
-	if ctx == nil || ctx.NodeID == "" {
+	if ctx == nil {
 		return
 	}
 
 	s.nodeConnsLock.Lock()
 	defer s.nodeConnsLock.Unlock()
+	ctx.nodeConnClosed = true
+	if ctx.NodeID == "" {
+		return
+	}
 	conns, ok := s.nodeConns[ctx.NodeID]
 	if !ok {
 		return

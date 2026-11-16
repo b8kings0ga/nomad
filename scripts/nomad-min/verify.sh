@@ -28,7 +28,8 @@ CI=true CGO_ENABLED=1 go test -race ./helper/pluginutils/loader -timeout=5m
 CI=true CGO_ENABLED=1 go test -race ./drivers/docker -run '^TestDriverCapabilitiesAreInstanceScoped$' -timeout=2m
 CI=true CGO_ENABLED=0 go test ./client -run '^(TestRPC|TestNodeMeta|TestClient_(HealthyHeartbeatIgnoresRPCSuccess|FailedHeartbeatWakesOnRPCSuccess|HeartbeatNoLeaderBackoff))' -timeout=5m
 CI=true CGO_ENABLED=1 go test -race ./client/hoststats -run '^TestHostStatsCollectorConcurrentInitialStats$' -timeout=2m
-CI=true CGO_ENABLED=1 go test -race ./client -run '^TestNodeMeta' -timeout=2m
+CI=true CGO_ENABLED=1 go test -race ./client -run '^TestNodeMeta' -count=3 -timeout=2m
+CI=true CGO_ENABLED=1 go test -race ./nomad -run '^TestServer_(NodeConnLifecycle|removeNodeConn_differentAddrs)$' -timeout=2m
 CI=true CGO_ENABLED=0 go test ./nomad/structs -run '^Test(Mimir|TaskGroup_Validate|Task_Validate_LogConfig)' -timeout=2m
 CI=true CGO_ENABLED=0 go test ./nomad -run '^(TestRPCContext|TestClientEndpoint_ShouldCreateNodeEval|TestCoreScheduler_EvalGC|TestClientEndpoint_UpdateStatus$|TestPlanApply|TestJob_Statuses|TestSearch_PrefixSearch_ACL|TestScalingEndpoint_GetPolicy_ACL|TestHostVolumeEndpoint_CreateRegisterGetDelete)' -timeout=5m
 CI=true CGO_ENABLED=0 go test ./scheduler/feasible -run 'TestMimir' -timeout=2m

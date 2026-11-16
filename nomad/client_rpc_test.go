@@ -6,6 +6,7 @@ package nomad
 import (
 	"net"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hashicorp/nomad/ci"
@@ -31,6 +32,65 @@ func (n namedConnWrapper) LocalAddr() net.Addr {
 	return namedAddr(n.name)
 }
 
+func TestServer_NodeConnLifecycle(t *testing.T) {
+	ci.Parallel(t)
+
+	t.Run("closed before registration", func(t *testing.T) {
+		s := &Server{nodeConns: make(map[string][]*nodeConnState)}
+		ctx := &RPCContext{}
+		s.removeNodeConn(ctx)
+		s.addNodeConn(ctx, "node-a")
+		require.Empty(t, s.connectedNodes())
+		require.Empty(t, ctx.NodeID)
+	})
+
+	t.Run("concurrent registrations bind once", func(t *testing.T) {
+		s := &Server{nodeConns: make(map[string][]*nodeConnState)}
+		ctx := &RPCContext{}
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for _, id := range []string{"node-a", "node-b"} {
+			wg.Add(1)
+			go func(id string) {
+				defer wg.Done()
+				<-start
+				s.addNodeConn(ctx, id)
+			}(id)
+		}
+		close(start)
+		wg.Wait()
+		require.Len(t, s.connectedNodes(), 1)
+		require.Len(t, s.nodeConns[ctx.NodeID], 1)
+		require.Contains(t, []string{"node-a", "node-b"}, ctx.NodeID)
+	})
+
+	t.Run("registration races connection close", func(t *testing.T) {
+		s := &Server{nodeConns: make(map[string][]*nodeConnState)}
+		p1, p2 := net.Pipe()
+		defer p1.Close()
+		defer p2.Close()
+		for range 100 {
+			ctx := &RPCContext{Conn: p1}
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				<-start
+				s.addNodeConn(ctx, "node-a")
+			}()
+			go func() {
+				defer wg.Done()
+				<-start
+				s.removeNodeConn(ctx)
+			}()
+			close(start)
+			wg.Wait()
+			require.Empty(t, s.connectedNodes())
+		}
+	})
+}
+
 func TestServer_removeNodeConn_differentAddrs(t *testing.T) {
 	ci.Parallel(t)
 	require := require.New(t)
@@ -52,16 +112,14 @@ func TestServer_removeNodeConn_differentAddrs(t *testing.T) {
 	// Add the connections
 	nodeID := uuid.Generate()
 	ctx1 := &RPCContext{
-		Conn:   w1,
-		NodeID: nodeID,
+		Conn: w1,
 	}
 	ctx2 := &RPCContext{
-		Conn:   w2,
-		NodeID: nodeID,
+		Conn: w2,
 	}
 
-	s1.addNodeConn(ctx1)
-	s1.addNodeConn(ctx2)
+	s1.addNodeConn(ctx1, nodeID)
+	s1.addNodeConn(ctx2, nodeID)
 	require.Len(s1.connectedNodes(), 1)
 	require.Len(s1.nodeConns[nodeID], 2)
 
@@ -142,9 +200,7 @@ func TestServerWithNodeConn_Path(t *testing.T) {
 
 	// Create a fake connection for the node on server 2
 	nodeID := uuid.Generate()
-	s2.addNodeConn(&RPCContext{
-		NodeID: nodeID,
-	})
+	s2.addNodeConn(&RPCContext{}, nodeID)
 
 	srv, err := s1.serverWithNodeConn(nodeID, s1.Region())
 	require.NotNil(srv)
@@ -168,9 +224,7 @@ func TestServerWithNodeConn_Path_Region(t *testing.T) {
 
 	// Create a fake connection for the node on server 2
 	nodeID := uuid.Generate()
-	s2.addNodeConn(&RPCContext{
-		NodeID: nodeID,
-	})
+	s2.addNodeConn(&RPCContext{}, nodeID)
 
 	srv, err := s1.serverWithNodeConn(nodeID, s2.Region())
 	require.NotNil(srv)
@@ -201,12 +255,8 @@ func TestServerWithNodeConn_Path_Newest(t *testing.T) {
 
 	// Create a fake connection for the node on server 2 and 3
 	nodeID := uuid.Generate()
-	s2.addNodeConn(&RPCContext{
-		NodeID: nodeID,
-	})
-	s3.addNodeConn(&RPCContext{
-		NodeID: nodeID,
-	})
+	s2.addNodeConn(&RPCContext{}, nodeID)
+	s3.addNodeConn(&RPCContext{}, nodeID)
 
 	srv, err := s1.serverWithNodeConn(nodeID, s1.Region())
 	require.NotNil(srv)
@@ -237,9 +287,7 @@ func TestServerWithNodeConn_PathAndErr(t *testing.T) {
 
 	// Create a fake connection for the node on server 2
 	nodeID := uuid.Generate()
-	s2.addNodeConn(&RPCContext{
-		NodeID: nodeID,
-	})
+	s2.addNodeConn(&RPCContext{}, nodeID)
 
 	// Shutdown the RPC layer for server 3
 	s3.rpcListener.Close()

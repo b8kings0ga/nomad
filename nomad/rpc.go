@@ -122,8 +122,13 @@ type RPCContext struct {
 	// connection.
 	VerifiedChains [][]*x509.Certificate
 
-	// NodeID marks the NodeID that initiated the connection.
+	// NodeID marks the NodeID that initiated the connection. NodeID and
+	// nodeConnClosed are protected by the owning Server's nodeConnsLock.
 	NodeID string
+
+	// nodeConnClosed prevents an in-flight registration from caching a
+	// connection after its RPC handler has finished removing it.
+	nodeConnClosed bool
 }
 
 func (ctx *RPCContext) IsTLS() bool {
