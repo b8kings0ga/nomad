@@ -116,6 +116,7 @@ type mockPlugin struct {
 	version      string
 	apiVersions  []string
 	configSchema bool
+	configCalls  int
 
 	// config is built on SetConfig
 	config *mockPluginConfig
@@ -166,6 +167,7 @@ func (m *mockPlugin) ConfigSchema() (*hclspec.Spec, error) {
 
 // SetConfig decodes the configuration and stores it
 func (m *mockPlugin) SetConfig(c *base.Config) error {
+	m.configCalls++
 	var config mockPluginConfig
 	if len(c.PluginConfig) != 0 {
 		if err := base.MsgPackDecode(c.PluginConfig, &config); err != nil {

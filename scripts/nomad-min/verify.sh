@@ -24,6 +24,8 @@ CGO_ENABLED=0 go test -tags "${TAGS}" -run '^TestMinimal' .
 
 echo '==> Running focused ordinary-build regression tests'
 CI=true CGO_ENABLED=1 go test -race ./helper/pool
+CI=true CGO_ENABLED=1 go test -race ./helper/pluginutils/loader -timeout=5m
+CI=true CGO_ENABLED=1 go test -race ./drivers/docker -run '^TestDriverCapabilitiesAreInstanceScoped$' -timeout=2m
 CI=true CGO_ENABLED=0 go test ./client -run '^(TestRPC|TestNodeMeta|TestClient_(HealthyHeartbeatIgnoresRPCSuccess|FailedHeartbeatWakesOnRPCSuccess|HeartbeatNoLeaderBackoff))' -timeout=5m
 CI=true CGO_ENABLED=1 go test -race ./client/hoststats -run '^TestHostStatsCollectorConcurrentInitialStats$' -timeout=2m
 CI=true CGO_ENABLED=1 go test -race ./client -run '^TestNodeMeta' -timeout=2m
