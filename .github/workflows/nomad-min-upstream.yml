@@ -47,6 +47,7 @@ jobs:
         env:
           OUT_DIR: ${{ runner.temp }}/nomad-min-release
         run: |
+          set -o pipefail
           scripts/nomad-min/package.sh
           scripts/nomad-min/verify-packages.sh | tee "${OUT_DIR}/nomad-min-validation.txt"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
