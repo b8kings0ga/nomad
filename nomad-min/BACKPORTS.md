@@ -1,5 +1,28 @@
 # Upstream backports
 
+## 2026-11-16: consolidated fork release
+
+The release version is `2.0.7+mimc.20261116`. The upstream base remains Nomad
+2.0.7, with the 2.1.x fixes listed below. Source version metadata and
+`UPSTREAM_VERSION` agree; packaging refuses inconsistent version overrides.
+
+This release also incorporates the remaining changes from PRs #8 and #13 and
+the October hoststats/stateio prereleases:
+
+- `a9fb96a9ca`: guarded zero-disk mimc sandbox compatibility and bounded health pings.
+- `5cb440775a`, `b9da240eda`: healthy heartbeat TTLs, no-leader backoff, canceled
+  RPC stream opening, pool shutdown handling, remaining read cancellation,
+  removed minimal routes, and ordinary-build Vault task cancellation.
+- `5140d4f810`: serialize concurrent initial host statistics collection.
+- `bd1247185d`: keep configuration readers live during durable metadata writes,
+  retaining the main branch's identical-update suppression.
+
+The verification gate covers these regressions, including pool, hoststats, and
+metadata race checks. Release packages are checked against their manifests,
+SHA256 files, embedded metadata, and actual version/profile/revision output on
+both architectures; arm64 execution uses QEMU on the amd64 runner. Historical
+immutable releases and prereleases remain available for rollback.
+
 ## 2026-11-14: fixes from Nomad 2.1.x
 
 The latest stable upstream release checked was `v2.1.1` (2026-10-29), commit
@@ -49,7 +72,13 @@ browser tests were not run locally. No release or cluster rollout was performed.
 Only `.github/workflows/nomad-min-upstream.yml` is retained as an executable
 workflow in this fork. Pull requests targeting `nomad-min`, pushes to that branch,
 and manual `verify_only` runs execute `scripts/nomad-min/verify.sh` on a hosted
-Linux runner. These events do not synchronize upstream or publish releases.
-The existing scheduled/manual release path is retained separately in the same
-workflow. Inherited HashiCorp workflows are disabled and removed from this fork;
-they are not part of its merge checks.
+Linux runner, then build and verify both architecture packages. These events do
+not publish releases. Scheduled and manual publication use the reviewed default
+branch and publish the same validated artifacts. Release tags include the fork
+version and source revision; existing assets are never overwritten. The workflow
+does not replay upstream during publication. Upstream changes must be reviewed
+and merged separately. Inherited HashiCorp workflows remain disabled and removed.
+
+To validate the current branch without publishing, dispatch the workflow with
+`verify_only=true`. To publish the reviewed default branch, dispatch it on
+`nomad-min` with `verify_only=false`. Only the publication job has write access.
