@@ -365,7 +365,7 @@ func (s *HTTPServer) jobActions(resp http.ResponseWriter, req *http.Request, job
 	}
 
 	var out structs.JobActionListResponse
-	if err := s.agent.RPC(structs.JobGetActionsRPCMethod, &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), structs.JobGetActionsRPCMethod, &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -487,7 +487,7 @@ func (s *HTTPServer) jobSubmissionQuery(resp http.ResponseWriter, req *http.Requ
 	}
 
 	var out structs.JobSubmissionResponse
-	err := s.agent.RPC("Job.GetJobSubmission", &args, &out)
+	err := s.agent.RPCContext(req.Context(), "Job.GetJobSubmission", &args, &out)
 	if err != nil {
 		return nil, err
 	}
@@ -994,7 +994,7 @@ func (s *HTTPServer) jobServiceRegistrations(resp http.ResponseWriter, req *http
 
 	// Perform the RPC request.
 	var reply structs.JobServiceRegistrationsResponse
-	if err := s.agent.RPC(structs.JobServiceRegistrationsRPCMethod, &args, &reply); err != nil {
+	if err := s.agent.RPCContext(req.Context(), structs.JobServiceRegistrationsRPCMethod, &args, &reply); err != nil {
 		return nil, err
 	}
 

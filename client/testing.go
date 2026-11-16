@@ -45,6 +45,9 @@ func TestClientWithRPCs(t testing.TB, cb func(c *config.Config), rpcs map[string
 		conf.Options = make(map[string]string)
 	}
 	conf.Options[fingerprint.TightenNetworkTimeoutsConfig] = "true"
+	// Generic client tests exercise local behavior, not the runner's cloud
+	// metadata services. Cloud fingerprinters have dedicated mocked tests.
+	conf.Options["fingerprint.denylist"] = "env_aws,env_gce,env_azure,env_digitalocean"
 
 	logger := testlog.HCLogger(t)
 	conf.Logger = logger

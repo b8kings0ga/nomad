@@ -4,6 +4,7 @@
 package loader
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -441,6 +442,37 @@ func TestPluginLoader_External_VersionOverlap(t *testing.T) {
 		},
 	}
 	require.EqualValues(expected, detected)
+}
+
+func TestPluginLoader_ConfiguredOnceDuringValidation(t *testing.T) {
+	ci.Parallel(t)
+	var instances []*mockPlugin
+	factory := mockFactory("mock-device", base.PluginTypeDevice, "v0.0.1", []string{device.ApiVersion010}, true)
+	_, err := NewPluginLoader(&PluginLoaderConfig{
+		Logger:            testlog.HCLogger(t),
+		SupportedVersions: supportedApiVersions,
+		InternalPlugins: map[PluginID]*InternalPluginConfig{
+			{Name: "mock-device", PluginType: base.PluginTypeDevice}: {
+				Factory: func(ctx context.Context, logger log.Logger) interface{} {
+					instance := factory(ctx, logger).(*mockPlugin)
+					instances = append(instances, instance)
+					return instance
+				},
+				Config: map[string]interface{}{"foo": "configured"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	configured := 0
+	for _, instance := range instances {
+		if instance.configCalls == 0 {
+			continue
+		}
+		configured++
+		require.Equal(t, 1, instance.configCalls)
+		require.Equal(t, "configured", instance.config.Foo)
+	}
+	require.Equal(t, 1, configured)
 }
 
 func TestPluginLoader_Internal(t *testing.T) {

@@ -30,7 +30,7 @@ func (s *HTTPServer) newSearchRequest(resp http.ResponseWriter, req *http.Reques
 	}
 
 	var out structs.SearchResponse
-	if err := s.agent.RPC("Search.PrefixSearch", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Search.PrefixSearch", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -57,7 +57,7 @@ func (s *HTTPServer) newFuzzySearchRequest(resp http.ResponseWriter, req *http.R
 	}
 
 	var out structs.FuzzySearchResponse
-	if err := s.agent.RPC("Search.FuzzySearch", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Search.FuzzySearch", &args, &out); err != nil {
 		return nil, err
 	}
 

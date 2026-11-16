@@ -24,10 +24,15 @@ CGO_ENABLED=0 go test -tags "${TAGS}" -run '^TestMinimal' .
 
 echo '==> Running focused ordinary-build regression tests'
 CI=true CGO_ENABLED=1 go test -race ./helper/pool
-CI=true CGO_ENABLED=0 go test ./client -run '^(TestRPC|TestNodeMeta_)' -timeout=5m
+CI=true CGO_ENABLED=1 go test -race ./helper/pluginutils/loader -timeout=5m
+CI=true CGO_ENABLED=1 go test -race ./drivers/docker -run '^TestDriverCapabilitiesAreInstanceScoped$' -timeout=2m
+CI=true CGO_ENABLED=0 go test ./client -run '^(TestRPC|TestNodeMeta|TestClient_(HealthyHeartbeatIgnoresRPCSuccess|FailedHeartbeatWakesOnRPCSuccess|HeartbeatNoLeaderBackoff))' -timeout=5m
+CI=true CGO_ENABLED=1 go test -race ./client/hoststats -run '^TestHostStatsCollectorConcurrentInitialStats$' -timeout=2m
+CI=true CGO_ENABLED=1 go test -race ./client -run '^TestNodeMeta' -timeout=2m
+CI=true CGO_ENABLED=0 go test ./nomad/structs -run '^Test(Mimir|TaskGroup_Validate|Task_Validate_LogConfig)' -timeout=2m
 CI=true CGO_ENABLED=0 go test ./nomad -run '^(TestRPCContext|TestClientEndpoint_ShouldCreateNodeEval|TestCoreScheduler_EvalGC|TestClientEndpoint_UpdateStatus$|TestPlanApply|TestJob_Statuses|TestSearch_PrefixSearch_ACL|TestScalingEndpoint_GetPolicy_ACL|TestHostVolumeEndpoint_CreateRegisterGetDelete)' -timeout=5m
 CI=true CGO_ENABLED=0 go test ./scheduler/feasible -run 'TestMimir' -timeout=2m
-CI=true CGO_ENABLED=0 go test ./command/agent -run '^TestHTTP_(AllocsListPropagatesCancellation|ReadQueriesPropagateCancellation)$' -timeout=2m
+CI=true CGO_ENABLED=0 go test ./command/agent -run '^TestHTTP_(AllocsListPropagatesCancellation|ReadQueriesPropagateCancellation|UnavailableNodePoolRoutes)$' -timeout=2m
 CI=true CGO_ENABLED=0 go test \
   ./nomad/structs/config \
   ./client/serviceregistration \
@@ -44,7 +49,7 @@ CI=true CGO_ENABLED=0 go test \
 CI=true CGO_ENABLED=0 go test ./client/allocdir -run '^(TestAllocDir_Move|TestDropDirPermissions_Symlink)' -timeout=2m
 CI=true CGO_ENABLED=0 go test ./helper/escapingfs -run '^TestChildEscapesParentDir$' -timeout=2m
 CI=true CGO_ENABLED=0 go test ./client/logmon -run '^TestLogmon_(Start_rotate|Start_restart_flusheslogs|NewError)$' -timeout=2m
-CI=true CGO_ENABLED=0 go test ./client/allocrunner/taskrunner -run '^TestTaskRunner_(DispatchHook|LogmonHook)' -timeout=2m
+CI=true CGO_ENABLED=0 go test ./client/allocrunner/taskrunner -run '^(TestTaskRunner_(DispatchHook|LogmonHook)|TestIntegrationVaultHookTaskContext$)' -timeout=2m
 
 echo '==> Running focused nomad_min taskrunner regression tests'
 CGO_ENABLED=0 go build -tags "${TAGS}" ./client/allocrunner/taskrunner

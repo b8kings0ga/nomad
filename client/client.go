@@ -151,9 +151,11 @@ type Client struct {
 	// 	// <mutate newConfig>
 	// 	c.config = newConfig
 	// 	c.configLock.Unlock()
-	configLock  sync.Mutex
-	config      *config.Config
-	metaDynamic map[string]*string // dynamic node metadata
+	// Serialize durable metadata writes separately: config readers drive heartbeats.
+	metaWriteLock sync.Mutex
+	configLock    sync.Mutex
+	config        *config.Config
+	metaDynamic   map[string]*string // dynamic node metadata
 
 	// metaStatic are the Node's static metadata set via the agent configuration
 	// and defaults during client initialization. Since this map is never updated
@@ -1970,9 +1972,16 @@ func (c *Client) registerAndHeartbeat() {
 		heartbeat = time.After(helper.RandomStagger(initialHeartbeatStagger))
 	}
 
+	retrying := false
 	for {
+		// A successful unrelated RPC can accelerate recovery after a failed
+		// heartbeat, but must not shorten a healthy heartbeat's negotiated TTL.
+		var retryWatcher <-chan struct{}
+		if retrying {
+			retryWatcher = c.rpcRetryWatcher()
+		}
 		select {
-		case <-c.rpcRetryWatcher():
+		case <-retryWatcher:
 		case <-heartbeat:
 		case <-c.shutdownCh:
 			return
@@ -1989,7 +1998,9 @@ func (c *Client) registerAndHeartbeat() {
 				c.setNodeIdentityToken("")
 				c.retryRegisterNode()
 				heartbeat = time.After(helper.RandomStagger(initialHeartbeatStagger))
+				retrying = false
 			} else {
+				retrying = true
 				intv := c.getHeartbeatRetryIntv(err)
 				c.logger.Error("error heartbeating. retrying", "error", err, "period", intv)
 				heartbeat = time.After(intv)
@@ -1998,6 +2009,7 @@ func (c *Client) registerAndHeartbeat() {
 				c.triggerDiscovery()
 			}
 		} else {
+			retrying = false
 			c.heartbeatLock.Lock()
 			heartbeat = time.After(c.heartbeatTTL)
 			c.heartbeatLock.Unlock()
@@ -2027,7 +2039,7 @@ func (c *Client) getHeartbeatRetryIntv(err error) time.Duration {
 	// treat it as a registration. In the case that there is a leadership loss,
 	// we will have our heartbeat timer reset to a much larger threshold, so
 	// do not put unnecessary pressure on the new leader.
-	if !haveHeartbeated || err == structs.ErrNoLeader {
+	if !haveHeartbeated || structs.IsErrNoLeader(err) {
 		return c.retryIntv(registerRetryIntv)
 	}
 

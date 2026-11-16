@@ -38,7 +38,7 @@ func (s *HTTPServer) evalsListRequest(resp http.ResponseWriter, req *http.Reques
 	args.FilterJobID = query.Get("job")
 
 	var out structs.EvalListResponse
-	if err := s.agent.RPC("Eval.List", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Eval.List", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -111,7 +111,7 @@ func (s *HTTPServer) evalAllocations(resp http.ResponseWriter, req *http.Request
 	}
 
 	var out structs.EvalAllocationsResponse
-	if err := s.agent.RPC("Eval.Allocations", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Eval.Allocations", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -138,7 +138,7 @@ func (s *HTTPServer) evalQuery(resp http.ResponseWriter, req *http.Request, eval
 	args.IncludeRelated = query.Get("related") == "true"
 
 	var out structs.SingleEvalResponse
-	if err := s.agent.RPC("Eval.GetEval", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Eval.GetEval", &args, &out); err != nil {
 		return nil, err
 	}
 
@@ -160,7 +160,7 @@ func (s *HTTPServer) EvalsCountRequest(resp http.ResponseWriter, req *http.Reque
 	}
 
 	var out structs.EvalCountResponse
-	if err := s.agent.RPC("Eval.Count", &args, &out); err != nil {
+	if err := s.agent.RPCContext(req.Context(), "Eval.Count", &args, &out); err != nil {
 		return nil, err
 	}
 

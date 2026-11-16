@@ -28,6 +28,10 @@ import (
 // Callers may retry these failures without replaying an ambiguous mutation.
 var ErrRPCNotSent = errors.New("RPC request was not sent")
 
+// ErrPoolShutdown identifies a permanently closed pool. Retrying against another
+// address cannot recover it; the owner must create a new pool instead.
+var ErrPoolShutdown = errors.New("rpc error: shutdown")
+
 // defaultDialTimeout is the fallback timeout used when a ConnPool is
 // constructed without an explicit dial timeout.
 const defaultDialTimeout = 10 * time.Second
@@ -104,6 +108,9 @@ type Conn struct {
 
 	clients    *list.List
 	clientLock sync.Mutex
+	// Limit abandoned, non-context-aware yamux opens to one per connection.
+	// Protected by clientLock during initialization, then used as a semaphore.
+	streamOpenCh chan struct{}
 }
 
 // markForUse does all the bookkeeping required to ready a connection for use,
@@ -127,25 +134,89 @@ func (c *Conn) Close() error {
 }
 
 // getClient is used to get a cached or new client
-func (c *Conn) getRPCClient() (*StreamClient, error) {
+func (c *Conn) getRPCClientContext(ctx context.Context) (*StreamClient, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Check for cached client
 	c.clientLock.Lock()
 	front := c.clients.Front()
 	if front != nil {
 		c.clients.Remove(front)
 	}
+	if c.streamOpenCh == nil {
+		c.streamOpenCh = make(chan struct{}, 1)
+	}
+	gate := c.streamOpenCh
 	c.clientLock.Unlock()
 	if front != nil {
 		return front.Value.(*StreamClient), nil
 	}
 
+	// OpenStream may block waiting for a yamux SYN credit without observing
+	// ctx. Bound that background work, rather than spawning one stuck opener
+	// for every caller that times out. Waiting callers remain cancellable.
+	select {
+	case gate <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	type result struct {
+		client *StreamClient
+		err    error
+	}
+	done := make(chan result)
+	// Keep the connection alive if its caller abandons the open. TLS reload
+	// and pool shutdown can still close the session and unblock the worker.
+	c.markForUse()
+	go func() {
+		defer c.releaseUse()
+		defer func() { <-gate }()
+		client, err := c.openRPCClient(ctx)
+		select {
+		case done <- result{client, err}:
+		case <-ctx.Done():
+			if client != nil {
+				_ = client.stream.SetDeadline(time.Now())
+				client.Close()
+			}
+		}
+	}()
+	select {
+	case out := <-done:
+		return out.client, out.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (c *Conn) openRPCClient(ctx context.Context) (*StreamClient, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Open a new session
 	stream, err := c.session.Open()
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err := stream.Write([]byte{byte(RpcNomad)}); err != nil {
+	// Once Open returns, cancellation can interrupt the protocol-byte write
+	// without tearing down other RPCs on this session. Synchronize the callback
+	// before handing the stream to the caller so it cannot expire a reused one.
+	expired := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		_ = stream.SetDeadline(time.Now())
+		close(expired)
+	})
+	_, err = stream.Write([]byte{byte(RpcNomad)})
+	if !stop() {
+		<-expired
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		stream.Close()
+		return nil, ctxErr
+	}
+	if err != nil {
 		stream.Close()
 		return nil, err
 	}
@@ -379,7 +450,7 @@ func (p *ConnPool) acquireContext(ctx context.Context, region string, addr net.A
 	p.Lock()
 	if p.shutdown {
 		p.Unlock()
-		return nil, fmt.Errorf("rpc error: shutdown")
+		return nil, ErrPoolShutdown
 	}
 	c := p.pool[addr.String()]
 	if c != nil {
@@ -416,7 +487,7 @@ func (p *ConnPool) acquireContext(ctx context.Context, region string, addr net.A
 		if p.shutdown {
 			p.Unlock()
 			c.Close()
-			return nil, fmt.Errorf("rpc error: shutdown")
+			return nil, ErrPoolShutdown
 		}
 		if c.tlsGeneration != p.tlsGeneration {
 			p.Unlock()
@@ -444,7 +515,7 @@ func (p *ConnPool) acquireContext(ctx context.Context, region string, addr net.A
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-p.shutdownCh:
-		return nil, fmt.Errorf("rpc error: shutdown")
+		return nil, ErrPoolShutdown
 	case <-wait:
 	}
 
@@ -568,12 +639,17 @@ START:
 	// Try to get a conn first
 	conn, err := p.acquireContext(ctx, region, addr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get conn: %v", err)
+		return nil, nil, fmt.Errorf("failed to get conn: %w", err)
 	}
 
 	// Get a client
-	client, err := conn.getRPCClient()
+	client, err := conn.getRPCClientContext(ctx)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// A canceled opener does not prove that the shared session failed.
+			conn.releaseUse()
+			return nil, nil, ctxErr
+		}
 		p.clearConn(conn)
 		conn.releaseUse()
 
@@ -582,7 +658,7 @@ START:
 			retries++
 			goto START
 		}
-		return nil, nil, fmt.Errorf("failed to start stream: %v", err)
+		return nil, nil, fmt.Errorf("failed to start stream: %w", err)
 	}
 	return conn, client, nil
 }

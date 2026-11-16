@@ -36,58 +36,84 @@ func (n *NodeMeta) Apply(args *structs.NodeMetaApplyRequest, reply *structs.Node
 		return structs.NewErrRPCCoded(http.StatusBadRequest, err.Error())
 	}
 
-	var stateErr error
-	var dyn map[string]*string
-	var changed bool
-
-	newNode := n.c.UpdateNode(func(node *structs.Node) {
-		dyn = maps.Clone(n.c.metaDynamic)
-		maps.Copy(dyn, args.Meta)
-		// Keep static-key tombstones so removals survive a client restart.
-		for k, v := range args.Meta {
-			if _, static := n.c.metaStatic[k]; v == nil && !static {
-				delete(dyn, k)
+	// Keep persistence serialized without holding configLock across disk I/O.
+	// Readers retain the last durable snapshot until publication below.
+	if !n.c.metaWriteLock.TryLock() {
+		timer := time.NewTimer(time.Second)
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer timer.Stop()
+		defer ticker.Stop()
+		acquired := false
+		for !acquired {
+			select {
+			case <-timer.C:
+				return structs.NewErrRPCCoded(http.StatusServiceUnavailable, "node metadata persistence is busy; retry the update")
+			case <-ticker.C:
+				acquired = n.c.metaWriteLock.TryLock()
 			}
 		}
-		changed = !reflect.DeepEqual(dyn, n.c.metaDynamic) ||
-			(args.Capability != nil && !reflect.DeepEqual(args.Capability, node.MimirCapability)) ||
-			(args.Health != nil && !reflect.DeepEqual(args.Health, node.MimirHealth))
+	}
+	defer n.c.metaWriteLock.Unlock()
+
+	n.c.configLock.Lock()
+	dyn := maps.Clone(n.c.metaDynamic)
+	maps.Copy(dyn, args.Meta)
+	for key, value := range args.Meta {
+		if _, static := n.c.metaStatic[key]; value == nil && !static {
+			delete(dyn, key)
+		}
+	}
+	changed := !reflect.DeepEqual(dyn, n.c.metaDynamic) ||
+		(args.Capability != nil && !reflect.DeepEqual(args.Capability, n.c.config.Node.MimirCapability)) ||
+		(args.Health != nil && !reflect.DeepEqual(args.Health, n.c.config.Node.MimirHealth))
+	n.c.configLock.Unlock()
+
+	capabilitySaved, healthSaved, metadataSaved := false, false, false
+	persist := func() error {
 		if !changed {
-			return
+			return nil
 		}
 		if args.Capability != nil {
-			if stateErr = n.c.stateDB.PutMimirCapability(args.Capability); stateErr != nil {
-				return
+			if err := n.c.stateDB.PutMimirCapability(args.Capability); err != nil {
+				return err
 			}
+			capabilitySaved = true
+		}
+		if args.Health != nil {
+			if err := n.c.stateDB.PutMimirHealth(args.Health); err != nil {
+				return err
+			}
+			healthSaved = true
+		}
+		if err := n.c.stateDB.PutNodeMeta(dyn); err != nil {
+			return err
+		}
+		metadataSaved = true
+		return nil
+	}
+	stateErr := persist()
+	newNode := n.c.UpdateNode(func(node *structs.Node) {
+		// Preserve the existing partial-success behavior if a later persistence
+		// step fails, but never publish a value whose write failed.
+		if capabilitySaved {
 			node.MimirCapability = args.Capability.Copy()
 			node.Meta["mimir.benchmark_spec"] = args.Capability.BenchmarkSpec
 			node.Meta["mimir.benchmark_result"] = args.Capability.ResultID
 		}
-		if args.Health != nil {
-			if stateErr = n.c.stateDB.PutMimirHealth(args.Health); stateErr != nil {
-				return
-			}
+		if healthSaved {
 			node.MimirHealth = args.Health.Copy()
 		}
-		if stateErr = n.c.stateDB.PutNodeMeta(dyn); stateErr != nil {
-			return
-		}
-
-		// Apply updated dynamic metadata to client and node now that the part of
-		// the operation that can fail succeeded (persistence). Must clone as dyn
-		// is read outside of UpdateNode.
-		n.c.metaDynamic = maps.Clone(dyn)
-
-		for k, v := range args.Meta {
-			if v == nil {
-				delete(node.Meta, k)
-				continue
+		if metadataSaved {
+			n.c.metaDynamic = maps.Clone(dyn)
+			for key, value := range args.Meta {
+				if value == nil {
+					delete(node.Meta, key)
+				} else {
+					node.Meta[key] = *value
+				}
 			}
-
-			node.Meta[k] = *v
 		}
 	})
-
 	if stateErr != nil {
 		return stateErr
 	}

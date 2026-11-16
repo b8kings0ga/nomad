@@ -2,19 +2,13 @@ name: nomad_min CI and release
 
 on:
   pull_request:
-    branches:
-      - nomad-min
+    branches: [nomad-min]
   push:
-    branches:
-      - nomad-min
+    branches: [nomad-min]
   workflow_dispatch:
     inputs:
-      upstream_ref:
-        description: Upstream stable tag or commit; empty means latest stable tag
-        required: false
-        type: string
       verify_only:
-        description: Verify the selected branch without upstream sync or publishing
+        description: Verify and package without publishing a release
         required: false
         type: boolean
         default: false
@@ -22,176 +16,88 @@ on:
     - cron: "17 4 * * 1"
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
-  group: nomad-min-release
+  group: nomad-min-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   verify:
-    if: github.event_name == 'pull_request' || github.event_name == 'push' || inputs.verify_only
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    permissions:
-      contents: read
     env:
       CI: "true"
       GOMAXPROCS: "2"
       GOFLAGS: "-p=2"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Reserve build space on the disposable runner
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet
+          df -h "${GITHUB_WORKSPACE}"
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
-          go-version-file: go.mod
+          go-version-file: .go-version
+      - name: Install package verification tools
+        run: sudo apt-get update && sudo apt-get install -y zstd qemu-user
       - name: Verify candidate source
         run: scripts/nomad-min/verify.sh
-
-  sync-build-package:
-    if: ${{ github.event_name != 'pull_request' && github.event_name != 'push' && !inputs.verify_only }}
-    runs-on: ubuntu-24.04
-    env:
-      GH_REPO: ${{ github.repository }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Configure upstream
-        run: git remote add upstream https://github.com/hashicorp/nomad.git
-
-      - name: Configure Git identity
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-
-      - name: Install packaging dependency
-        run: sudo apt-get update && sudo apt-get install -y zstd
-
-      - name: Resolve and replay nomad_min patch stack
-        id: sync
-        env:
-          REQUESTED_REF: ${{ inputs.upstream_ref }}
-        run: |
-          args=(--worktree "${RUNNER_TEMP}/nomad-min-sync")
-          if [[ -n "${REQUESTED_REF}" ]]; then
-            args+=(--target "${REQUESTED_REF}")
-          fi
-          scripts/nomad-min/sync-upstream.sh "${args[@]}" | tee "${RUNNER_TEMP}/sync.env"
-          grep '^NOMAD_MIN_SYNC_' "${RUNNER_TEMP}/sync.env" >>"${GITHUB_OUTPUT}"
-
-      - name: Resolve release context
-        id: release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CHANGED: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED }}
-          SYNC_TARGET: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_TARGET }}
-          SYNC_WORKTREE: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_WORKTREE }}
-        run: |
-          if [[ "${CHANGED}" == "true" ]]; then
-            source_dir="${SYNC_WORKTREE}"
-          else
-            source_dir="${GITHUB_WORKSPACE}"
-          fi
-          base_release_tag="nomad-min-${SYNC_TARGET}"
-          patch_commit="$(git -C "${source_dir}" rev-parse --short=12 HEAD)"
-          release_tag="${base_release_tag}"
-          if gh release view "${base_release_tag}" >/dev/null 2>&1; then
-            release_tag="${base_release_tag}-r${patch_commit}"
-          fi
-          if gh release view "${release_tag}" >/dev/null 2>&1; then
-            should_release=false
-          else
-            should_release=true
-          fi
-          {
-            echo "release_tag=${release_tag}"
-            echo "source_dir=${source_dir}"
-            echo "should_release=${should_release}"
-          } >>"${GITHUB_OUTPUT}"
-
-      - name: Verify synchronized source
-        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true' || steps.release.outputs.should_release == 'true'
-        working-directory: ${{ steps.release.outputs.source_dir }}
-        run: scripts/nomad-min/verify.sh
-
-      - name: Package release artifacts
-        if: steps.release.outputs.should_release == 'true'
-        working-directory: ${{ steps.release.outputs.source_dir }}
+      - name: Build and verify both architecture packages
         env:
           OUT_DIR: ${{ runner.temp }}/nomad-min-release
-        run: scripts/nomad-min/package.sh
-
-      - uses: actions/upload-artifact@v4
-        if: steps.release.outputs.should_release == 'true'
+        run: |
+          set -o pipefail
+          scripts/nomad-min/package.sh
+          scripts/nomad-min/verify-packages.sh | tee "${OUT_DIR}/nomad-min-validation.txt"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: nomad-min-${{ steps.sync.outputs.NOMAD_MIN_SYNC_TARGET }}
+          name: nomad-min-${{ github.sha }}
           path: ${{ runner.temp }}/nomad-min-release/
+          compression-level: 0
           if-no-files-found: error
+          retention-days: 14
 
-      - name: Push synchronization branch
-        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true'
+  publish:
+    needs: verify
+    if: github.ref == 'refs/heads/nomad-min' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.verify_only))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nomad-min-${{ github.sha }}
+          path: ${{ runner.temp }}/nomad-min-release
+      - name: Publish verified immutable release
         env:
-          WORKTREE: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_WORKTREE }}
-          TARGET: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_TARGET }}
+          OUT_DIR: ${{ runner.temp }}/nomad-min-release
         run: |
-          safe_target="${TARGET//[^A-Za-z0-9._-]/-}"
-          branch="automation/nomad-min-${safe_target}"
-          git -C "${WORKTREE}" switch -c "${branch}"
-          if git ls-remote --exit-code --heads origin "refs/heads/${branch}" >/dev/null; then
-            git fetch origin "refs/heads/${branch}:refs/remotes/origin/${branch}"
-            expected="$(git rev-parse "refs/remotes/origin/${branch}")"
-            git -C "${WORKTREE}" push \
-              --force-with-lease="refs/heads/${branch}:${expected}" origin "${branch}"
-          else
-            git -C "${WORKTREE}" push --set-upstream origin "${branch}"
+          version="$(tr -d '[:space:]' < nomad-min/UPSTREAM_VERSION)"
+          commit="$(git rev-parse --short=12 HEAD)"
+          upstream="$(cut -c1-12 nomad-min/UPSTREAM_COMMIT)"
+          tag="nomad-min-v${version//+/-}-r${commit}"
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "Release ${tag} already exists; retaining its assets unchanged."
+            exit 0
           fi
-          echo "SYNC_BRANCH=${branch}" >>"${GITHUB_ENV}"
-          echo "RELEASE_TARGET=${branch}" >>"${GITHUB_ENV}"
-
-      - name: Use current commit as release target
-        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED != 'true'
-        run: echo "RELEASE_TARGET=${GITHUB_SHA}" >>"${GITHUB_ENV}"
-
-      - name: Open or update pull request
-        if: steps.sync.outputs.NOMAD_MIN_SYNC_CHANGED == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_TARGET }}
-        run: |
-          existing="$(gh pr list --head "${SYNC_BRANCH}" --json number --jq '.[0].number // empty')"
-          if [[ -z "${existing}" ]]; then
-            gh pr create \
-              --base "${GITHUB_REF_NAME}" \
-              --head "${SYNC_BRANCH}" \
-              --title "build: sync nomad_min to ${TARGET}" \
-              --body "Automated replay, verification, dual-architecture build, and packaging of the nomad_min patch stack."
-          fi
-
-      - name: Publish immutable GitHub Release
-        if: steps.release.outputs.should_release == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
-          TARGET: ${{ steps.sync.outputs.NOMAD_MIN_SYNC_TARGET }}
-          SOURCE_DIR: ${{ steps.release.outputs.source_dir }}
-        run: |
-          patch_commit="$(git -C "${SOURCE_DIR}" rev-parse --short=12 HEAD)"
-          upstream_commit="$(cut -c1-12 "${SOURCE_DIR}/nomad-min/UPSTREAM_COMMIT")"
           cat >"${RUNNER_TEMP}/release-notes.md" <<EOF
-          Minimal Nomad agent build for Mimir, based on HashiCorp Nomad ${TARGET}.
+          Minimal Nomad agent ${version} for Mimir, built from the reviewed fork.
 
-          - Build profile: \`nomad_min\`
-          - Architectures: Linux amd64 and arm64
-          - Upstream commit: \`${upstream_commit}\`
-          - Patch commit: \`${patch_commit}\`
-          - Compression: \`zstd --ultra -22\`
+          - Source commit: ${GITHUB_SHA}
+          - Upstream base commit: ${upstream}
+          - Profile: nomad_min; agent and version commands
+          - Architectures: Linux amd64 and arm64, statically linked
+          - Validation: source regressions, dependency exclusions, package SHA256, embedded metadata, and execution of both architecture binaries
+          - Backports and compatibility fixes: [source notes](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/nomad-min/BACKPORTS.md)
 
-          Consume \`nomad-min-manifest.tsv\` and verify the adjacent package SHA256 values before rollout.
+          Verify nomad-min-manifest.tsv and the adjacent SHA256 files before consuming the packages. This release does not deploy any agents.
           EOF
-          gh release create "${RELEASE_TAG}" \
-            "${RUNNER_TEMP}/nomad-min-release/"* \
-            --target "${RELEASE_TARGET}" \
-            --title "nomad_min ${TARGET}" \
+          gh release create "${tag}" "${OUT_DIR}/"* \
+            --target "${GITHUB_SHA}" --latest \
+            --title "nomad_min ${version}" \
             --notes-file "${RUNNER_TEMP}/release-notes.md"

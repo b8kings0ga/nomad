@@ -504,27 +504,13 @@ func (l *PluginLoader) validatePluginConfig(id PluginID, info *pluginInfo) (map[
 	// Store the marshalled config
 	info.msgpackConfig = cdata
 
-	// Dispense the plugin and set its config and ensure it is error free
+	// Dispense applies the encoded config above and validates it. Configuring
+	// the same instance again can race background work started by SetConfig.
 	instance, err := l.Dispense(id.Name, id.PluginType, nil, l.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dispense plugin: %v", err)
 	}
 	defer instance.Kill()
-
-	b, ok := instance.Plugin().(base.BasePlugin)
-	if !ok {
-		return nil, fmt.Errorf("dispensed plugin %s doesn't meet base plugin interface", id)
-	}
-
-	c := &base.Config{
-		PluginConfig: cdata,
-		AgentConfig:  nil,
-		ApiVersion:   info.apiVersion,
-	}
-
-	if err := b.SetConfig(c); err != nil {
-		return nil, fmt.Errorf("setting config on plugin failed: %v", err)
-	}
 
 	parsedConfig, err := hclutils.CtyValueToMapInterface(val)
 	if err != nil {

@@ -9,8 +9,15 @@ OUT_DIR="${OUT_DIR:-${ROOT_DIR}/pkg/nomad_min/release}"
 WORK_DIR="${WORK_DIR:-${ROOT_DIR}/pkg/nomad_min/package-work}"
 VERSION="${NOMAD_VERSION:-$(tr -d '[:space:]' <"${ROOT_DIR}/nomad-min/UPSTREAM_VERSION")}"
 ZSTD_LEVEL="${ZSTD_LEVEL:-22}"
+ZSTD_THREADS="${ZSTD_THREADS:-2}"
 PATCH_COMMIT="$(git -C "${ROOT_DIR}" rev-parse --short=12 HEAD)"
 UPSTREAM_COMMIT="$(cut -c1-12 "${ROOT_DIR}/nomad-min/UPSTREAM_COMMIT")"
+SOURCE_VERSION="$(awk '$1 == "Version" && $2 == "=" {gsub(/"/, "", $3); version=$3} $1 == "VersionMetadata" && $2 == "=" {gsub(/"/, "", $3); metadata=$3} END {print version (metadata == "" ? "" : "+" metadata)}' "${ROOT_DIR}/version/version.go")"
+RECORDED_VERSION="$(tr -d '[:space:]' <"${ROOT_DIR}/nomad-min/UPSTREAM_VERSION")"
+[[ "${VERSION}" == "${SOURCE_VERSION}" && "${VERSION}" == "${RECORDED_VERSION}" ]] || {
+  echo "package version ${VERSION} disagrees with source ${SOURCE_VERSION} or recorded version ${RECORDED_VERSION}" >&2
+  exit 1
+}
 
 sha256_file() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -49,7 +56,7 @@ for arch in amd64 arm64; do
     >"${stage}/opt/mim/runtime/NOMAD_MIN_VERSION.json"
 
   COPYFILE_DISABLE=1 tar -C "${stage}" -cf - . \
-    | zstd --ultra "-${ZSTD_LEVEL}" -T0 -f -o "${OUT_DIR}/${package}"
+    | zstd --ultra "-${ZSTD_LEVEL}" "-T${ZSTD_THREADS}" -f -o "${OUT_DIR}/${package}"
   zstd -t "${OUT_DIR}/${package}"
   cp "${OUT_DIR}/${package}" "${OUT_DIR}/${versioned}"
 
