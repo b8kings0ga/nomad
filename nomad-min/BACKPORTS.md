@@ -23,6 +23,11 @@ SHA256 files, embedded metadata, and actual version/profile/revision output on
 both architectures; arm64 execution uses QEMU on the amd64 runner. Historical
 immutable releases and prereleases remain available for rollback.
 
+The release gate also exposed a server-side race between node registration and
+RPC connection teardown. Node identity binding, cache insertion, and removal now
+share the connection-map lock. A closed context cannot be cached by an in-flight
+registration. Race regressions cover concurrent registration and close ordering.
+
 ## 2026-11-14: fixes from Nomad 2.1.x
 
 The latest stable upstream release checked was `v2.1.1` (2026-10-29), commit
